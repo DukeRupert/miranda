@@ -1,0 +1,198 @@
+package view
+
+import "fmt"
+
+// ExplorePage is the scheduling-engine proof-of-concept explorer: edit the rule
+// set on the left, see the derived demand, minimum shift count, reference-schedule
+// validation, and projected overtime on the right. The form posts via plain GET
+// (stateless, shareable) so no CSRF wiring is needed for the demo.
+templ ExplorePage(v ScheduleView) {
+	@Base("Scheduling Engine", "ATC facility scheduling engine — derive demand and explore overtime liability.", exploreContent(v))
+}
+
+templ exploreContent(v ScheduleView) {
+	<section class="mx-auto max-w-6xl px-6 py-16 sm:px-12">
+		@eyebrow("Scheduling engine · proof of concept")
+		<h1 class="max-w-3xl font-display text-[36px] font-medium leading-tight tracking-tight text-ff-paper sm:text-[52px]">
+			Derive the demand. Explore the <span class="italic text-ff-glow">liability</span>.
+		</h1>
+		<p class="mt-5 max-w-2xl text-[15px] font-light leading-relaxed text-ff-ash">
+			Define the operating window and the labor rules. The engine derives how many
+			bodies — with which qualifications — must be present at every minute, the
+			minimum number of shifts that can cover it, and the projected overtime the
+			reference 9-line schedule would carry under those rules.
+		</p>
+
+		<div class="mt-12 grid gap-10 lg:grid-cols-[340px_1fr]">
+			@ruleForm(v)
+			<div class="min-w-0 space-y-10">
+				if v.Err != "" {
+					<div class="rounded-sm border border-red-500/40 bg-red-500/10 p-4 text-[14px] text-red-300">{ v.Err }</div>
+				} else {
+					@demandPanel(v)
+					@schedulePanel(v)
+					@overtimePanel(v)
+				}
+			</div>
+		</div>
+	</section>
+}
+
+// ruleForm is the editable rule set. Plain GET form; server recomputes on submit.
+templ ruleForm(v ScheduleView) {
+	<form method="get" action="/explore" class="h-fit space-y-5 rounded-sm border border-ff-border bg-ff-dark/40 p-6 lg:sticky lg:top-8">
+		<p class="text-[11px] font-medium uppercase tracking-[0.2em] text-ff-ember">Facility &amp; rules</p>
+		@field("Open (HHMM)", "open", v.Form.Open, "text")
+		@field("Close (HHMM)", "close", v.Form.Close, "text")
+		@fieldNum("Min staff when open", "min_staff", fmt.Sprintf("%d", v.Form.MinStaff), "1")
+		@fieldNum("Max time on position (h)", "max_pos", trim(v.Form.MaxTimeOnPositionH), "0.25")
+		@fieldNum("Max shift length (h)", "max_shift", trim(v.Form.MaxShiftH), "0.5")
+		<label class="flex cursor-pointer items-center gap-3 pt-1 text-[13px] text-ff-ash">
+			<input type="checkbox" name="leave" value="1" checked?={ v.Form.IncludeLeave } class="h-4 w-4 accent-ff-ember"/>
+			Include leave scenario (E1 on bid leave, week 1 Mon–Fri)
+		</label>
+		<button type="submit" class="mt-2 w-full rounded-sm bg-ff-ember px-5 py-3 text-[12px] font-medium uppercase tracking-[0.12em] text-[#1a1109] transition hover:bg-ff-ember-hover active:scale-[0.99]">
+			Recompute &rarr;
+		</button>
+		<p class="pt-1 text-[11px] font-light leading-relaxed text-ff-stone">
+			Positions fixed at AP + LC. Candidate schedule is the HLN 9-line reference
+			(spec §8), staffed by nine CPC+CIC controllers.
+		</p>
+	</form>
+}
+
+templ field(label, name, value, typ string) {
+	<div>
+		<label class="mb-1.5 block text-[12px] font-medium text-ff-cream">{ label }</label>
+		<input type={ typ } name={ name } value={ value } class="w-full rounded-sm border border-ff-border bg-ff-dark px-3 py-2 text-[14px] text-ff-paper outline-none focus:border-ff-ember"/>
+	</div>
+}
+
+templ fieldNum(label, name, value, step string) {
+	<div>
+		<label class="mb-1.5 block text-[12px] font-medium text-ff-cream">{ label }</label>
+		<input type="number" step={ step } min="0" name={ name } value={ value } class="w-full rounded-sm border border-ff-border bg-ff-dark px-3 py-2 text-[14px] text-ff-paper outline-none focus:border-ff-ember"/>
+	</div>
+}
+
+// demandPanel shows the derived demand timeline and the shift-count minimum.
+templ demandPanel(v ScheduleView) {
+	<div>
+		@panelHead("Derived demand", fmt.Sprintf("%s open · %s operating day", v.Facility.OpenDuration().String(), Hours(v.Facility.OpenDuration())))
+		<div class="overflow-x-auto rounded-sm border border-ff-border">
+			<table class="w-full text-left text-[13px]">
+				<thead class="bg-ff-dark/60 text-[11px] uppercase tracking-wider text-ff-stone">
+					<tr>
+						<th class="px-4 py-2.5 font-medium">Interval</th>
+						<th class="px-4 py-2.5 font-medium">Length</th>
+						<th class="px-4 py-2.5 font-medium">Min total</th>
+						<th class="px-4 py-2.5 font-medium">Min capable</th>
+						<th class="px-4 py-2.5 font-medium">Kind</th>
+					</tr>
+				</thead>
+				<tbody class="divide-y divide-ff-border">
+					for _, iv := range v.Demand {
+						<tr class="text-ff-ash">
+							<td class="px-4 py-2.5 font-mono text-ff-cream">{ iv.Start.Clock() }–{ iv.End.Clock() }</td>
+							<td class="px-4 py-2.5">{ Hours(iv.Duration()) }</td>
+							<td class="px-4 py-2.5 font-medium text-ff-paper">{ fmt.Sprintf("%d", iv.MinTotal) }</td>
+							<td class="px-4 py-2.5 font-mono">{ CapVec(iv.MinCapable) }</td>
+							<td class="px-4 py-2.5">
+								if iv.MinTotal > v.Rules.MinStaffWhenOpen {
+									<span class="text-ff-glow">core (rotation)</span>
+								} else {
+									<span class="text-ff-stone">shoulder</span>
+								}
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+		<div class="mt-4 grid grid-cols-2 gap-4">
+			@stat(fmt.Sprintf("%d", v.MinDaily), "min shifts / day")
+			@stat(fmt.Sprintf("%d", v.WeeklyMin), "min shifts / week")
+		</div>
+	</div>
+}
+
+// schedulePanel shows how the reference schedule validates under the rules.
+templ schedulePanel(v ScheduleView) {
+	<div>
+		@panelHead("Reference schedule validation", fmt.Sprintf("%d illegal · %d warning", v.Illegal, v.Warning))
+		if len(v.Vios) == 0 {
+			<div class="rounded-sm border border-emerald-500/30 bg-emerald-500/5 p-4 text-[14px] text-emerald-300">Clean — no violations under these rules.</div>
+		} else {
+			<ul class="divide-y divide-ff-border rounded-sm border border-ff-border">
+				for _, vio := range v.Vios {
+					<li class="flex gap-3 px-4 py-3 text-[13px]">
+						<span class={ "shrink-0 font-mono text-[11px] uppercase " + SeverityClass(vio.Severity) }>{ string(vio.Severity) }</span>
+						<div class="min-w-0">
+							<span class="text-ff-stone">[{ vio.Rule }]</span>
+							<span class="text-ff-ash">{ vio.Message }</span>
+						</div>
+					</li>
+				}
+			</ul>
+		}
+	</div>
+}
+
+// overtimePanel shows the materialized pay-period overtime liability.
+templ overtimePanel(v ScheduleView) {
+	<div>
+		@panelHead("Projected overtime liability", fmt.Sprintf("pay period starting %s", v.Pay.Start.String()))
+		<div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
+			@stat(Hours(v.Pay.ProjectedOT), "projected OT")
+			@stat(fmt.Sprintf("%d", len(v.Pay.Shifts)), "scheduled shifts")
+			@stat(fmt.Sprintf("%d", len(v.Pay.Gaps)), "vacated gaps")
+			@stat(fmt.Sprintf("%d", v.OpenGapCount()), "unabsorbed")
+		</div>
+		if len(v.Pay.Uncovered) > 0 {
+			<p class="mt-6 mb-2 text-[12px] font-medium uppercase tracking-wider text-ff-stone">Uncovered bands (callout list)</p>
+			<div class="overflow-x-auto rounded-sm border border-ff-border">
+				<table class="w-full text-left text-[13px]">
+					<thead class="bg-ff-dark/60 text-[11px] uppercase tracking-wider text-ff-stone">
+						<tr>
+							<th class="px-4 py-2.5 font-medium">Date</th>
+							<th class="px-4 py-2.5 font-medium">Band</th>
+							<th class="px-4 py-2.5 font-medium">Short</th>
+							<th class="px-4 py-2.5 font-medium">Replacement needs</th>
+						</tr>
+					</thead>
+					<tbody class="divide-y divide-ff-border text-ff-ash">
+						for i, b := range v.Pay.Uncovered {
+							if i < 20 {
+								<tr>
+									<td class="px-4 py-2.5 font-mono text-ff-cream">{ b.Date.String() } ({ Weekdays[int(b.Date.Weekday())] })</td>
+									<td class="px-4 py-2.5 font-mono">{ b.Start.Clock() }–{ b.End.Clock() }</td>
+									<td class="px-4 py-2.5">{ fmt.Sprintf("%d", b.Deficit) }</td>
+									<td class="px-4 py-2.5 font-mono">{ QualLabel(b.Requires) }</td>
+								</tr>
+							}
+						}
+					</tbody>
+				</table>
+			</div>
+			if len(v.Pay.Uncovered) > 20 {
+				<p class="mt-2 text-[11px] text-ff-stone">… and { fmt.Sprintf("%d", len(v.Pay.Uncovered)-20) } more.</p>
+			}
+		} else {
+			<div class="mt-4 rounded-sm border border-emerald-500/30 bg-emerald-500/5 p-4 text-[14px] text-emerald-300">Fully covered — no projected overtime.</div>
+		}
+	</div>
+}
+
+templ panelHead(title, sub string) {
+	<div class="mb-4 flex items-end justify-between gap-4 border-b border-ff-border pb-2">
+		<h2 class="font-display text-[22px] font-medium text-ff-paper">{ title }</h2>
+		<span class="text-[12px] font-light text-ff-stone">{ sub }</span>
+	</div>
+}
+
+templ stat(value, label string) {
+	<div class="rounded-sm border border-ff-border bg-ff-dark/40 px-4 py-3">
+		<div class="font-display text-[26px] font-medium leading-none text-ff-glow">{ value }</div>
+		<div class="mt-1.5 text-[11px] uppercase tracking-wider text-ff-stone">{ label }</div>
+	</div>
+}

@@ -119,6 +119,7 @@ func main() {
 
 	// Pages
 	mux.Handle("GET /", handler.Home())
+	mux.Handle("GET /explore", handler.Explore()) // scheduling-engine proof of concept
 	mux.Handle("GET /contact", handler.Contact())
 	mux.Handle("POST /contact", handler.ContactSubmit(mailer, cfg.TurnstileSecretKey))
 
