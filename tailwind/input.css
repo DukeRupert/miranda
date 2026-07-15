@@ -1,0 +1,12 @@
+@import url("https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400;1,500&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,400&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  ::selection {
+    background: rgba(219, 123, 52, 0.32);
+    color: #f5efe6;
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "advanced-template",
+  "image": "mcr.microsoft.com/devcontainers/go:1.25-trixie",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "lts"
+    }
+  },
+  "postCreateCommand": "bash .devcontainer/install.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.go",
+        "a-h.templ",
+        "bradlc.vscode-tailwindcss",
+        "htmx-tags.html-htmx-support",
+        "esbenp.prettier-vscode"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "go.toolsManagement.autoUpdate": true
+      }
+    }
+  }
+}

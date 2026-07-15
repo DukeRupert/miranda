@@ -1,0 +1,10 @@
+package view
+
+import "github.com/firefly-software-mt/advanced-template/internal/middleware"
+
+// CSRFField renders the hidden CSRF token input. Include it in every form
+// that POSTs (or PUTs/DELETEs). The token comes from the request context,
+// which templ passes through automatically as ctx.
+templ CSRFField() {
+	<input type="hidden" name="csrf_token" value={ middleware.TokenFromContext(ctx) }/>
+}

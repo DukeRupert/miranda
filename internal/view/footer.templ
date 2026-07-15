@@ -1,0 +1,12 @@
+package view
+
+import "fmt"
+
+templ Footer() {
+	<footer class="border-t border-ff-border">
+		<div class="mx-auto flex max-w-5xl items-center justify-between px-6 py-8 text-[13px] text-ff-stone sm:px-12">
+			<p>&copy; { fmt.Sprint(Year()) } { SiteName }</p>
+			<p class="text-ff-ash">fireflysoftware.dev</p>
+		</div>
+	</footer>
+}

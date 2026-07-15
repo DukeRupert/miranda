@@ -1,0 +1,57 @@
+package view
+
+templ LoginPage(errMsg, email string) {
+	@Base("Login", "Sign in to your account.", loginContent(errMsg, email))
+}
+
+templ loginContent(errMsg, email string) {
+	<section class="py-24 sm:py-[80px]">
+		<div class="mx-auto max-w-5xl px-6 sm:px-12">
+			@eyebrow("Admin")
+			<h1 class="mb-10 font-display text-[36px] font-medium tracking-tight text-ff-paper">Login</h1>
+			<div class="max-w-sm">
+				@LoginForm(errMsg, email)
+			</div>
+		</div>
+	</section>
+}
+
+templ LoginForm(errMsg, email string) {
+	<form hx-post="/login" hx-swap="outerHTML" class="space-y-5">
+		@CSRFField()
+		if errMsg != "" {
+			<div class="rounded border border-red-500/40 bg-red-500/10 p-4">
+				<p class="text-[13px] text-red-400">{ errMsg }</p>
+			</div>
+		}
+		<div>
+			<label for="email" class="mb-1.5 block text-[13px] font-medium text-ff-cream">Email</label>
+			<input
+				type="email"
+				id="email"
+				name="email"
+				value={ email }
+				class="w-full rounded-sm border border-ff-border2 bg-ff-panel px-4 py-2.5 text-[15px] font-light text-ff-cream placeholder-ff-stone outline-none transition focus:border-[#db7b3473]"
+				placeholder="you@example.com"
+				required
+			/>
+		</div>
+		<div>
+			<label for="password" class="mb-1.5 block text-[13px] font-medium text-ff-cream">Password</label>
+			<input
+				type="password"
+				id="password"
+				name="password"
+				class="w-full rounded-sm border border-ff-border2 bg-ff-panel px-4 py-2.5 text-[15px] font-light text-ff-cream placeholder-ff-stone outline-none transition focus:border-[#db7b3473]"
+				placeholder="Enter your password"
+				required
+			/>
+		</div>
+		<button
+			type="submit"
+			class="rounded-sm bg-ff-ember px-[26px] py-[13px] text-[12px] font-medium uppercase tracking-[0.12em] text-[#1a1109] transition hover:bg-ff-ember-hover active:scale-[0.98]"
+		>
+			Sign in
+		</button>
+	</form>
+}

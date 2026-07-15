@@ -1,0 +1,110 @@
+package view
+
+templ HomePage() {
+	@Base("Home", "A secure, server-rendered starting point for software that lasts.", homeContent())
+}
+
+templ homeContent() {
+	<!-- Hero -->
+	<section class="relative overflow-hidden">
+		<div class="mx-auto max-w-5xl px-6 pb-20 pt-24 sm:px-12 sm:pb-28 sm:pt-36">
+			@eyebrow("Flintcraft Studio")
+			<h1 class="max-w-3xl font-display text-[44px] font-medium leading-[1.04] tracking-tight text-ff-paper sm:text-[76px]">
+				Software that feels<br/>
+				<span class="italic text-ff-glow">forged</span>, not assembled.
+			</h1>
+			<p class="mt-7 max-w-xl text-[16px] font-light leading-relaxed text-ff-ash">
+				The starting point for your next application — authentication, data, and
+				deployment already in place. Replace this copy with your product's story
+				and ship the rest.
+			</p>
+			<div class="mt-11 flex flex-wrap items-center gap-x-7 gap-y-4">
+				@primaryLink("/login", "Sign in")
+				@ghostLink("/contact", "Get in touch")
+			</div>
+			<p class="mt-6 text-[13px] font-light text-ff-stone">
+				No account yet? <a href="/contact" class="text-ff-ash underline decoration-ff-ember-mid underline-offset-4 transition hover:text-ff-cream">Request access &rarr;</a>
+			</p>
+		</div>
+		<!-- Warm ember wash, low and to the right -->
+		<div class="pointer-events-none absolute -bottom-32 right-0 h-[460px] w-[560px] bg-[radial-gradient(at_70%_60%,#3a2417_0%,#1b1714_52%,transparent_78%)]"></div>
+	</section>
+
+	<!-- Capabilities — asymmetric: a heading column beside an editorial list -->
+	<section id="inside" class="border-t border-ff-border">
+		<div class="mx-auto grid max-w-5xl gap-x-12 gap-y-12 px-6 py-24 sm:px-12 sm:py-28 lg:grid-cols-[0.8fr_1.2fr]">
+			<div class="lg:sticky lg:top-24 lg:self-start">
+				@eyebrow("What's inside")
+				<h2 class="font-display text-[34px] font-medium leading-tight tracking-tight text-ff-paper sm:text-[44px]">
+					Built in from the first commit.
+				</h2>
+				<p class="mt-5 max-w-sm text-[15px] font-light leading-relaxed text-ff-ash">
+					Every project starts with the parts that are tedious to get right —
+					done, tested, and out of your way.
+				</p>
+			</div>
+			<div>
+				@capability("01", "Authenticated by default", "Session-backed login, protected routes, CSRF and per-IP rate limiting — wired before you write a line.")
+				@capability("02", "Type-safe data", "SQL compiled straight to Go with sqlc. Migrations embedded in the binary and applied on boot.")
+				@capability("03", "Server-rendered speed", "templ and htmx return real HTML in a single request. No SPA bundle, no hydration wait.")
+				@capability("04", "Ships as one binary", "Build, embed, deploy. A single artifact behind Caddy — no runtime to assemble on the server.")
+			</div>
+		</div>
+	</section>
+
+	<!-- Operator sign-in band -->
+	<section class="relative overflow-hidden border-t border-ff-border">
+		<div class="mx-auto flex max-w-5xl flex-col gap-8 px-6 py-20 sm:flex-row sm:items-end sm:justify-between sm:px-12 sm:py-24">
+			<div>
+				<p class="mb-3 text-[11px] font-medium uppercase tracking-[0.2em] text-ff-ember">For operators</p>
+				<h2 class="font-display text-[36px] font-medium leading-tight tracking-tight text-ff-paper sm:text-[48px]">
+					Returning to manage your project?
+				</h2>
+			</div>
+			<div class="shrink-0">
+				@primaryLink("/login", "Sign in")
+			</div>
+		</div>
+		<div class="pointer-events-none absolute -left-24 -top-24 h-[360px] w-[460px] bg-[radial-gradient(at_30%_30%,#3a2417_0%,#1b1714_55%,transparent_80%)]"></div>
+	</section>
+}
+
+// eyebrow is the small accented label used above headings across the site.
+templ eyebrow(label string) {
+	<div class="mb-6 flex items-center gap-3">
+		<span class="block h-px w-7 bg-ff-ember"></span>
+		<span class="text-[11px] font-medium uppercase tracking-[0.2em] text-ff-ember">{ label }</span>
+	</div>
+}
+
+// capability is one editorial row in the "what's inside" list: a serif index
+// numeral, a title, and a description, separated by a hairline.
+templ capability(index, title, description string) {
+	<div class="flex gap-6 border-b border-ff-border py-7 first:pt-0">
+		<span class="mt-1 font-display text-[28px] italic leading-none text-ff-glow/70">{ index }</span>
+		<div>
+			<h3 class="text-[17px] font-medium text-ff-cream">{ title }</h3>
+			<p class="mt-2 max-w-md text-[14px] font-light leading-relaxed text-ff-ash">{ description }</p>
+		</div>
+	</div>
+}
+
+// primaryLink is the ember call-to-action button (dark ink on warm ember).
+templ primaryLink(href, label string) {
+	<a
+		href={ templ.SafeURL(href) }
+		class="rounded-sm bg-ff-ember px-[26px] py-[13px] text-[12px] font-medium uppercase tracking-[0.12em] text-[#1a1109] transition hover:bg-ff-ember-hover active:scale-[0.98]"
+	>
+		{ label } &rarr;
+	</a>
+}
+
+// ghostLink is the quiet secondary action — text only.
+templ ghostLink(href, label string) {
+	<a
+		href={ templ.SafeURL(href) }
+		class="text-[12px] font-medium uppercase tracking-[0.08em] text-ff-ash transition hover:text-ff-cream"
+	>
+		{ label }
+	</a>
+}

@@ -1,0 +1,84 @@
+package view
+
+templ ContactPage(errors map[string]string, values map[string]string, success bool) {
+	@Base("Contact", "Get in touch with us.", contactContent(errors, values, success))
+}
+
+templ contactContent(errors map[string]string, values map[string]string, success bool) {
+	<section class="py-24 sm:py-[80px]">
+		<div class="mx-auto max-w-5xl px-6 sm:px-12">
+			@eyebrow("Say hello")
+			<h1 class="mb-10 font-display text-[36px] font-medium tracking-tight text-ff-paper">Contact</h1>
+			<div class="max-w-lg">
+				@ContactForm(errors, values, success)
+			</div>
+		</div>
+	</section>
+}
+
+templ ContactForm(errors map[string]string, values map[string]string, success bool) {
+	<form hx-post="/contact" hx-swap="outerHTML" class="space-y-5">
+		@CSRFField()
+		if success {
+			<div class="rounded border border-ff-ember-mid bg-ff-panel p-6">
+				<p class="text-[15px] font-normal text-ff-glow">Thanks! We'll be in touch soon.</p>
+			</div>
+		} else {
+			if errors["form"] != "" {
+				<div class="rounded border border-red-500/40 bg-red-500/10 p-4">
+					<p class="text-[13px] text-red-400">{ errors["form"] }</p>
+				</div>
+			}
+			<div>
+				<label for="name" class="mb-1.5 block text-[13px] font-medium text-ff-cream">Name</label>
+				<input
+					type="text"
+					id="name"
+					name="name"
+					value={ values["name"] }
+					class="w-full rounded-sm border border-ff-border2 bg-ff-panel px-4 py-2.5 text-[15px] font-light text-ff-cream placeholder-ff-stone outline-none transition focus:border-[#db7b3473]"
+					placeholder="Your name"
+				/>
+				if errors["name"] != "" {
+					<p class="mt-1 text-[11px] text-red-400">{ errors["name"] }</p>
+				}
+			</div>
+			<div>
+				<label for="email" class="mb-1.5 block text-[13px] font-medium text-ff-cream">Email</label>
+				<input
+					type="email"
+					id="email"
+					name="email"
+					value={ values["email"] }
+					class="w-full rounded-sm border border-ff-border2 bg-ff-panel px-4 py-2.5 text-[15px] font-light text-ff-cream placeholder-ff-stone outline-none transition focus:border-[#db7b3473]"
+					placeholder="you@example.com"
+				/>
+				if errors["email"] != "" {
+					<p class="mt-1 text-[11px] text-red-400">{ errors["email"] }</p>
+				}
+			</div>
+			<div>
+				<label for="message" class="mb-1.5 block text-[13px] font-medium text-ff-cream">Message</label>
+				<textarea
+					id="message"
+					name="message"
+					rows="5"
+					class="w-full rounded-sm border border-ff-border2 bg-ff-panel px-4 py-2.5 text-[15px] font-light text-ff-cream placeholder-ff-stone outline-none transition focus:border-[#db7b3473]"
+					placeholder="Tell us about your project..."
+				>{ values["message"] }</textarea>
+				if errors["message"] != "" {
+					<p class="mt-1 text-[11px] text-red-400">{ errors["message"] }</p>
+				}
+			</div>
+			if TurnstileSiteKey != "" {
+				<div class="cf-turnstile" data-sitekey={ TurnstileSiteKey } data-theme="dark"></div>
+			}
+			<button
+				type="submit"
+				class="rounded-sm bg-ff-ember px-[26px] py-[13px] text-[12px] font-medium uppercase tracking-[0.12em] text-[#1a1109] transition hover:bg-ff-ember-hover active:scale-[0.98]"
+			>
+				Send message
+			</button>
+		}
+	</form>
+}

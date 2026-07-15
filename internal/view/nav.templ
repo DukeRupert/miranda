@@ -1,0 +1,28 @@
+package view
+
+import "github.com/firefly-software-mt/advanced-template/internal/session"
+
+templ Nav() {
+	<nav class="border-b border-ff-border bg-[#0f1117eb] backdrop-blur-[12px]">
+		<div class="mx-auto flex max-w-5xl items-center justify-between px-6 py-4 sm:px-12">
+			<a href="/" class="text-[15px] font-normal tracking-tight text-ff-cream">{ SiteName }</a>
+			<div class="flex items-center gap-8 text-[12px] font-medium uppercase tracking-[0.08em]">
+				<a href="/" class="text-ff-ash transition hover:text-ff-cream">Home</a>
+				if session.FromContext(ctx) != nil {
+					<a href="/admin" class="text-ff-ash transition hover:text-ff-cream">Admin</a>
+					<form method="post" action="/logout" class="contents">
+						@CSRFField()
+						<button
+							type="submit"
+							class="text-[12px] font-medium uppercase tracking-[0.08em] text-ff-ash transition hover:text-ff-cream"
+						>Logout</button>
+					</form>
+				}
+				<a
+					href="/contact"
+					class="rounded-sm border border-ff-ember-lo px-4 py-2 text-ff-glow transition hover:border-ff-ember hover:bg-ff-ember-lo hover:text-ff-paper"
+				>Contact</a>
+			</div>
+		</div>
+	</nav>
+}

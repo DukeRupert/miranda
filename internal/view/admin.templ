@@ -1,0 +1,78 @@
+package view
+
+import "github.com/firefly-software-mt/advanced-template/internal/session"
+
+templ AdminPage(user *session.User) {
+	@Base("Admin", "Site administration.", adminContent(user))
+}
+
+templ adminContent(user *session.User) {
+	<section class="mx-auto max-w-5xl px-6 py-24 sm:px-12 sm:py-28">
+		<!-- Greeting -->
+		@eyebrow("Admin")
+		<h1 class="font-display text-[44px] font-medium leading-tight tracking-tight text-ff-paper sm:text-[60px]">
+			Welcome back.
+		</h1>
+		<div class="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 text-[14px] font-light text-ff-ash">
+			<span>Signed in as <span class="text-ff-glow">{ user.Email }</span></span>
+			<span class="hidden h-1 w-1 rounded-full bg-ff-ember-mid sm:block"></span>
+			<span class="inline-flex items-center gap-2">
+				<span class="h-1.5 w-1.5 rounded-full bg-ff-ember"></span>
+				Session active
+			</span>
+		</div>
+		<p class="mt-8 max-w-xl text-[15px] font-light leading-relaxed text-ff-ash">
+			This is your project's admin shell — protected by
+			<code class="text-ff-glow">session.RequireAuth</code>. The slots below mark
+			where your features plug in. Build them out, then replace this page.
+		</p>
+
+		<!-- Teaching empty-state slots: one wide, two narrow -->
+		<div class="mt-14 grid gap-5 sm:grid-cols-2">
+			@adminSlot(
+				"Your first feature",
+				"Add a protected page: write a handler, wrap it in session.RequireAuth, and register the route in cmd/server/main.go.",
+				"Add a route",
+				true,
+			)
+			@adminSlot(
+				"Data",
+				"Write SQL in queries/, run mage generate, and expose it through a Store method.",
+				"Define a query",
+				false,
+			)
+			@adminSlot(
+				"Settings",
+				"Per-project configuration is read once at startup from internal/config.",
+				"Add a setting",
+				false,
+			)
+		</div>
+
+		<!-- Quiet sign-out affordance -->
+		<form method="post" action="/logout" class="mt-12">
+			@CSRFField()
+			<button type="submit" class="text-[12px] font-medium uppercase tracking-[0.1em] text-ff-stone transition hover:text-ff-ash">
+				&larr; Sign out
+			</button>
+		</form>
+	</section>
+}
+
+// adminSlot is a teaching empty-state panel. The first slot spans both columns
+// to break the grid; the rest sit narrow beside each other.
+templ adminSlot(title, hint, action string, wide bool) {
+	<div
+		class={ "group relative rounded border border-dashed border-ff-border2 bg-ff-panel/30 p-8 transition hover:border-ff-ember-mid hover:bg-ff-panel",
+			templ.KV("sm:col-span-2", wide) }
+	>
+		<div class="flex items-start justify-between gap-4">
+			<h2 class="font-display text-[24px] font-medium text-ff-cream">{ title }</h2>
+			<span class="select-none text-[20px] font-light leading-none text-ff-ember-mid transition group-hover:text-ff-ember">+</span>
+		</div>
+		<p class="mt-3 max-w-md text-[14px] font-light leading-relaxed text-ff-ash">{ hint }</p>
+		<span class="mt-6 inline-block text-[11px] font-medium uppercase tracking-[0.14em] text-ff-stone transition group-hover:text-ff-glow">
+			{ action } &rarr;
+		</span>
+	</div>
+}
