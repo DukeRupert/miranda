@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -10,28 +11,29 @@ import (
 	"github.com/dukerupert/miranda/internal/domain"
 	"github.com/dukerupert/miranda/internal/fixtures"
 	"github.com/dukerupert/miranda/internal/materialize"
+	"github.com/dukerupert/miranda/internal/store"
 	vld "github.com/dukerupert/miranda/internal/validate"
 	"github.com/dukerupert/miranda/internal/view"
 )
 
-// Explore handles GET /explore: the scheduling-engine proof-of-concept. It reads
-// the rule set from query params (defaulting to HLN), derives the demand and
-// shift-count minimum, validates the HLN 9-line reference schedule under those
-// rules, and materializes a pay period to project the overtime liability.
-func Explore() http.HandlerFunc {
+// Explore handles GET /explore: the scheduling-engine explorer. It loads the
+// selected scenario's lines/controllers/leave from the store, reads the rule set
+// from query params (defaulting to HLN), derives the demand and shift-count
+// minimum, validates the scenario's schedule under those rules, and materializes
+// its pay period to project the overtime liability.
+func Explore(st *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		v := buildScheduleView(r)
+		v := buildScheduleView(r.Context(), st, r)
 		if err := view.ExplorePage(v).Render(r.Context(), w); err != nil {
 			slog.Error("render error", "err", err)
 		}
 	}
 }
 
-// buildScheduleView runs the whole engine pipeline for the current form state.
-func buildScheduleView(r *http.Request) view.ScheduleView {
+// buildScheduleView runs the whole engine pipeline for the selected scenario and
+// current rule-form state.
+func buildScheduleView(ctx context.Context, st *store.Store, r *http.Request) view.ScheduleView {
 	q := r.URL.Query()
-	// Default to the HLN fixture; the presence of any query param means the user
-	// submitted the form.
 	def := fixtures.HLNRules()
 	form := view.ScheduleForm{
 		Open:               qstr(q, "open", "0545"),
@@ -39,9 +41,33 @@ func buildScheduleView(r *http.Request) view.ScheduleView {
 		MinStaff:           qint(q, "min_staff", def.MinStaffWhenOpen),
 		MaxTimeOnPositionH: qfloat(q, "max_pos", def.MaxTimeOnPosition.Hours()),
 		MaxShiftH:          qfloat(q, "max_shift", def.MaxShiftHours.Hours()),
-		IncludeLeave:       q.Get("leave") == "1",
 	}
 	v := view.ScheduleView{Form: form}
+
+	scenarios, err := st.ListScenarios(ctx)
+	if err != nil {
+		v.Err = "load scenarios: " + err.Error()
+		return v
+	}
+	v.Scenarios = scenarios
+	if len(scenarios) == 0 {
+		return v // empty state; the view offers a "Seed HLN reference" action
+	}
+
+	// Resolve the selected scenario, falling back to the first if the query id
+	// is absent or stale.
+	sel := qint64(q, "scenario", scenarios[0].ID)
+	if !scenarioExists(scenarios, sel) {
+		sel = scenarios[0].ID
+	}
+	v.ScenarioID = sel
+
+	data, err := st.LoadScenario(ctx, sel)
+	if err != nil {
+		v.Err = "load scenario: " + err.Error()
+		return v
+	}
+	v.Data = data
 
 	open, err := domain.ParseTimeOfDay(form.Open)
 	if err != nil {
@@ -81,34 +107,113 @@ func buildScheduleView(r *http.Request) view.ScheduleView {
 	v.MinDaily = minDaily
 	v.WeeklyMin = minDaily * 7
 
-	lines := fixtures.HLNLines()
-	occ := fixtures.OccupantQuals()
-	if vios, err := vld.ValidateWeek(lines, occ, f, rules); err == nil {
+	if vios, err := vld.ValidateWeek(data.Lines, data.Occupants, f, rules); err == nil {
 		v.Vios = vios
 		v.Illegal, v.Warning = vld.Count(vios)
 	}
 
-	// Materialize a pay period starting on the reference Sunday. Optionally place
-	// the E1 controller on bid leave for week-1 Mon..Fri to show the OT impact.
-	start := domain.Date{Year: 2026, Month: time.July, Day: 12} // a Sunday
-	controllers := fixtures.HLNControllers()
-	var leave []domain.Leave
-	if form.IncludeLeave {
-		for _, c := range controllers {
-			if c.LineID != nil && *c.LineID == "E1" {
-				for i := 1; i <= 5; i++ {
-					leave = append(leave, domain.Leave{ControllerID: c.ID, Date: start.AddDays(i), Hours: 8 * time.Hour, Type: domain.LeaveBid})
-				}
-			}
-		}
-	}
-	if pay, err := materialize.Materialize(lines, controllers, leave, start, f, rules); err == nil {
+	if pay, err := materialize.Materialize(data.Lines, data.Controllers, data.Leave, data.Scenario.PPStart, f, rules); err == nil {
 		v.Pay = pay
 	}
 	return v
 }
 
+// ---- scenario mutations ---------------------------------------------------
+
+// SeedScenario handles POST /explore/seed: create a new scenario populated with
+// the HLN reference schedule, then redirect to it.
+func SeedScenario(st *store.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := st.SeedHLN(r.Context(), "HLN reference")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		redirectToScenario(w, r, id)
+	}
+}
+
+// CreateScenario handles POST /explore/scenarios: create an empty named scenario.
+func CreateScenario(st *store.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		name := r.FormValue("name")
+		if name == "" {
+			name = "New scenario"
+		}
+		id, err := st.CreateScenario(r.Context(), name)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		redirectToScenario(w, r, id)
+	}
+}
+
+// DuplicateScenario handles POST /explore/scenarios/duplicate: deep-copy a
+// scenario and redirect to the copy.
+func DuplicateScenario(st *store.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		src := formInt64(r, "scenario")
+		id, err := st.DuplicateScenario(r.Context(), src)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		redirectToScenario(w, r, id)
+	}
+}
+
+// DeleteScenario handles POST /explore/scenarios/delete: delete a scenario and
+// redirect to whatever remains.
+func DeleteScenario(st *store.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := formInt64(r, "scenario")
+		if err := st.DeleteScenario(r.Context(), id); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// Redirect to the first remaining scenario, or the bare page.
+		scenarios, _ := st.ListScenarios(r.Context())
+		if len(scenarios) > 0 {
+			redirectToScenario(w, r, scenarios[0].ID)
+			return
+		}
+		redirect(w, r, "/explore")
+	}
+}
+
+// ---- helpers --------------------------------------------------------------
+
 func hours(h float64) time.Duration { return time.Duration(h * float64(time.Hour)) }
+
+func scenarioExists(scenarios []store.Scenario, id int64) bool {
+	for _, s := range scenarios {
+		if s.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// redirectToScenario issues both HX-Redirect and a plain 303 to /explore for the
+// given scenario so htmx and non-JS posts both land on the right page.
+func redirectToScenario(w http.ResponseWriter, r *http.Request, id int64) {
+	redirect(w, r, "/explore?scenario="+strconv.FormatInt(id, 10))
+}
+
+func redirect(w http.ResponseWriter, r *http.Request, url string) {
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Redirect", url)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	http.Redirect(w, r, url, http.StatusSeeOther)
+}
+
+func formInt64(r *http.Request, key string) int64 {
+	n, _ := strconv.ParseInt(r.FormValue(key), 10, 64)
+	return n
+}
 
 func qstr(q map[string][]string, key, def string) string {
 	if vs, ok := q[key]; ok && len(vs) > 0 && vs[0] != "" {
@@ -119,6 +224,14 @@ func qstr(q map[string][]string, key, def string) string {
 func qint(q map[string][]string, key string, def int) int {
 	if vs, ok := q[key]; ok && len(vs) > 0 {
 		if n, err := strconv.Atoi(vs[0]); err == nil {
+			return n
+		}
+	}
+	return def
+}
+func qint64(q map[string][]string, key string, def int64) int64 {
+	if vs, ok := q[key]; ok && len(vs) > 0 {
+		if n, err := strconv.ParseInt(vs[0], 10, 64); err == nil {
 			return n
 		}
 	}

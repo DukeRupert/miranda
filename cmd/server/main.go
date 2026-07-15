@@ -119,7 +119,13 @@ func main() {
 
 	// Pages
 	mux.Handle("GET /", handler.Home())
-	mux.Handle("GET /explore", handler.Explore()) // scheduling-engine proof of concept
+	mux.Handle("GET /explore", handler.Explore(st)) // scheduling-engine explorer
+
+	// Scheduling scenario mutations (open, per POC decision; CSRF still applies).
+	mux.Handle("POST /explore/seed", handler.SeedScenario(st))
+	mux.Handle("POST /explore/scenarios", handler.CreateScenario(st))
+	mux.Handle("POST /explore/scenarios/duplicate", handler.DuplicateScenario(st))
+	mux.Handle("POST /explore/scenarios/delete", handler.DeleteScenario(st))
 	mux.Handle("GET /contact", handler.Contact())
 	mux.Handle("POST /contact", handler.ContactSubmit(mailer, cfg.TurnstileSecretKey))
 

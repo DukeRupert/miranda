@@ -23,19 +23,77 @@ templ exploreContent(v ScheduleView) {
 			reference 9-line schedule would carry under those rules.
 		</p>
 
-		<div class="mt-12 grid gap-10 lg:grid-cols-[340px_1fr]">
-			@ruleForm(v)
-			<div class="min-w-0 space-y-10">
-				if v.Err != "" {
-					<div class="rounded-sm border border-red-500/40 bg-red-500/10 p-4 text-[14px] text-red-300">{ v.Err }</div>
-				} else {
+		@scenarioBar(v)
+
+		if !v.HasScenarios() {
+			@emptyState()
+		} else if v.Err != "" {
+			<div class="mt-8 rounded-sm border border-red-500/40 bg-red-500/10 p-4 text-[14px] text-red-300">{ v.Err }</div>
+		} else {
+			<div class="mt-10 grid gap-10 lg:grid-cols-[340px_1fr]">
+				@ruleForm(v)
+				<div class="min-w-0 space-y-10">
 					@demandPanel(v)
 					@schedulePanel(v)
 					@overtimePanel(v)
-				}
+				</div>
 			</div>
-		</div>
+		}
 	</section>
+}
+
+// scenarioBar is the scenario selector plus create/duplicate/delete/seed actions.
+templ scenarioBar(v ScheduleView) {
+	<div class="mt-10 flex flex-wrap items-center gap-3 rounded-sm border border-ff-border bg-ff-dark/40 p-4">
+		if v.HasScenarios() {
+			<form method="get" action="/explore" class="flex items-center gap-2">
+				<label class="text-[11px] font-medium uppercase tracking-[0.16em] text-ff-ember">Scenario</label>
+				<select name="scenario" onchange="this.form.submit()" class="rounded-sm border border-ff-border bg-ff-dark px-3 py-2 text-[13px] text-ff-paper outline-none focus:border-ff-ember">
+					for _, sc := range v.Scenarios {
+						<option value={ fmt.Sprintf("%d", sc.ID) } selected?={ sc.ID == v.ScenarioID }>{ sc.Name }</option>
+					}
+				</select>
+			</form>
+			<span class="text-[12px] font-light text-ff-stone">PP start { scenarioPPStart(v) }</span>
+			<div class="flex-1"></div>
+			@postButton("/explore/scenarios/duplicate", scenarioField(v.ScenarioID), "Duplicate", "ghost")
+			@postButton("/explore/scenarios/delete", scenarioField(v.ScenarioID), "Delete", "danger")
+		} else {
+			<span class="text-[13px] text-ff-ash">No scenarios yet.</span>
+			<div class="flex-1"></div>
+		}
+		<form method="post" action="/explore/scenarios" class="flex items-center gap-2">
+			@CSRFField()
+			<input type="text" name="name" placeholder="New scenario name" class="w-44 rounded-sm border border-ff-border bg-ff-dark px-3 py-2 text-[13px] text-ff-paper outline-none focus:border-ff-ember"/>
+			<button type="submit" class="rounded-sm border border-ff-border px-3 py-2 text-[12px] font-medium text-ff-cream transition hover:border-ff-ember">New</button>
+		</form>
+		<form method="post" action="/explore/seed">
+			@CSRFField()
+			<button type="submit" class="rounded-sm bg-ff-ember px-4 py-2 text-[12px] font-medium uppercase tracking-[0.1em] text-[#1a1109] transition hover:bg-ff-ember-hover">Seed HLN</button>
+		</form>
+	</div>
+}
+
+// emptyState invites the user to seed the HLN reference on a fresh database.
+templ emptyState() {
+	<div class="mt-10 rounded-sm border border-ff-border bg-ff-dark/40 p-10 text-center">
+		<p class="text-[15px] text-ff-ash">No scenarios exist yet.</p>
+		<p class="mt-2 text-[13px] font-light text-ff-stone">
+			Seed the HLN 9-line reference (spec §8) to get a clean, editable starting point,
+			or create an empty scenario above.
+		</p>
+	</div>
+}
+
+// postButton renders a small standalone POST form styled as a button.
+templ postButton(action string, field hiddenField, label, variant string) {
+	<form method="post" action={ templ.SafeURL(action) }>
+		@CSRFField()
+		if field.Name != "" {
+			<input type="hidden" name={ field.Name } value={ field.Value }/>
+		}
+		<button type="submit" class={ postButtonClass(variant) }>{ label }</button>
+	</form>
 }
 
 // ruleForm is the editable rule set. Plain GET form; server recomputes on submit.
@@ -47,16 +105,13 @@ templ ruleForm(v ScheduleView) {
 		@fieldNum("Min staff when open", "min_staff", fmt.Sprintf("%d", v.Form.MinStaff), "1")
 		@fieldNum("Max time on position (h)", "max_pos", trim(v.Form.MaxTimeOnPositionH), "0.25")
 		@fieldNum("Max shift length (h)", "max_shift", trim(v.Form.MaxShiftH), "0.5")
-		<label class="flex cursor-pointer items-center gap-3 pt-1 text-[13px] text-ff-ash">
-			<input type="checkbox" name="leave" value="1" checked?={ v.Form.IncludeLeave } class="h-4 w-4 accent-ff-ember"/>
-			Include leave scenario (E1 on bid leave, week 1 Mon–Fri)
-		</label>
+		<input type="hidden" name="scenario" value={ fmt.Sprintf("%d", v.ScenarioID) }/>
 		<button type="submit" class="mt-2 w-full rounded-sm bg-ff-ember px-5 py-3 text-[12px] font-medium uppercase tracking-[0.12em] text-[#1a1109] transition hover:bg-ff-ember-hover active:scale-[0.99]">
 			Recompute &rarr;
 		</button>
 		<p class="pt-1 text-[11px] font-light leading-relaxed text-ff-stone">
-			Positions fixed at AP + LC. Candidate schedule is the HLN 9-line reference
-			(spec §8), staffed by nine CPC+CIC controllers.
+			Positions fixed at AP + LC. Rules are an exploratory overlay; the schedule
+			below is loaded from the selected scenario and is editable.
 		</p>
 	</form>
 }
