@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A Go web application built on Firefly Software's **Advanced tier** template: stdlib `net/http` + templ + htmx + Alpine + Tailwind, backed by SQLite (sqlc queries, goose migrations) with cookie-based session auth. The Go module is `github.com/dukerupert/miranda`; the repo is `miranda`.
 
-`spec.md` (untracked) specifies the domain feature this template is being extended into: an **FAA ATC facility scheduling engine** (pure `domain`/`coverage`/`validate`/`materialize` packages, no persistence/UI). That work does not exist yet — when implementing it, follow the phase order and non-negotiable test suite in `spec.md` exactly.
+`spec.md` (untracked) specifies the domain feature this template is being extended into: an **FAA ATC facility scheduling engine**. A working proof of concept exists on branch `poc/scheduling-engine` — see `POC-NOTES.md` for status, architecture, and (important) the two places the engine deliberately disagrees with the spec's stated numbers. The pure engine lives in `internal/{domain,coverage,validate,materialize}` with `internal/fixtures` holding the shared HLN reference data; the explorer UI is at `GET /explore` (`internal/handler/schedule.go`, `internal/view/schedule.templ`). When extending it, follow the phase order and non-negotiable §7 test suite in `spec.md`, and keep the engine packages pure (no I/O).
 
 For deeper rationale beyond this file, see `README.md`, `ARCHITECTURE.md`, and `POSTGRES.md`.
 
