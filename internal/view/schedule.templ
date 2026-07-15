@@ -53,6 +53,77 @@ templ scheduleEditors(v ScheduleView) {
 	<div class="mt-14 space-y-12 border-t border-ff-border pt-12">
 		@linesEditor(v)
 		@controllersEditor(v)
+		@leaveEditor(v)
+	</div>
+}
+
+// leaveEditor lists existing leave entries and offers a form to add one. Only
+// leave dated within the pay-period window drives projected overtime.
+templ leaveEditor(v ScheduleView) {
+	<div>
+		@panelHead("Leave", fmt.Sprintf("%d entries · pay period %s", len(v.Data.LeaveRows), v.PPWindow()))
+		if len(v.Data.LeaveRows) > 0 {
+			<div class="mb-4 overflow-x-auto rounded-sm border border-ff-border">
+				<table class="w-full text-left text-[13px]">
+					<thead class="bg-ff-dark/60 text-[11px] uppercase tracking-wider text-ff-stone">
+						<tr>
+							<th class="px-4 py-2.5 font-medium">Controller</th>
+							<th class="px-4 py-2.5 font-medium">Date</th>
+							<th class="px-4 py-2.5 font-medium">Hours</th>
+							<th class="px-4 py-2.5 font-medium">Type</th>
+							<th class="px-4 py-2.5 font-medium"></th>
+						</tr>
+					</thead>
+					<tbody class="divide-y divide-ff-border text-ff-ash">
+						for _, lv := range v.Data.LeaveRows {
+							<tr>
+								<td class="px-4 py-2.5 text-ff-cream">{ v.ControllerName(lv.ControllerID) }</td>
+								<td class="px-4 py-2.5 font-mono">{ lv.Date.String() } ({ Weekdays[int(lv.Date.Weekday())] })</td>
+								<td class="px-4 py-2.5">{ Hours(lv.Hours) }</td>
+								<td class="px-4 py-2.5">{ string(lv.Type) }</td>
+								<td class="px-4 py-2.5 text-right">
+									<form method="post" action="/explore/leave/delete">
+										@CSRFField()
+										<input type="hidden" name="scenario" value={ fmt.Sprintf("%d", v.ScenarioID) }/>
+										<input type="hidden" name="leave_id" value={ fmt.Sprintf("%d", lv.ID) }/>
+										<button type="submit" class="text-[11px] text-ff-stone transition hover:text-red-300">Remove</button>
+									</form>
+								</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		}
+		<form method="post" action="/explore/leave" class="flex flex-wrap items-end gap-3 rounded-sm border border-ff-border bg-ff-dark/40 p-3">
+			@CSRFField()
+			<input type="hidden" name="scenario" value={ fmt.Sprintf("%d", v.ScenarioID) }/>
+			<div>
+				<label class="mb-1 block text-[10px] uppercase tracking-wider text-ff-stone">Controller</label>
+				<select name="controller_id" class="rounded-sm border border-ff-border bg-ff-dark px-2 py-1.5 text-[13px] text-ff-paper outline-none focus:border-ff-ember">
+					for _, c := range v.Data.Controllers {
+						<option value={ c.ID }>{ c.Name }</option>
+					}
+				</select>
+			</div>
+			<div>
+				<label class="mb-1 block text-[10px] uppercase tracking-wider text-ff-stone">Date</label>
+				<input type="date" name="leave_date" value={ scenarioPPStart(v) } class="rounded-sm border border-ff-border bg-ff-dark px-2 py-1.5 text-[13px] text-ff-paper outline-none focus:border-ff-ember"/>
+			</div>
+			<div>
+				<label class="mb-1 block text-[10px] uppercase tracking-wider text-ff-stone">Hours</label>
+				<input type="number" name="hours" value="8" step="0.5" min="0" class="w-20 rounded-sm border border-ff-border bg-ff-dark px-2 py-1.5 text-[13px] text-ff-paper outline-none focus:border-ff-ember"/>
+			</div>
+			<div>
+				<label class="mb-1 block text-[10px] uppercase tracking-wider text-ff-stone">Type</label>
+				<select name="leave_type" class="rounded-sm border border-ff-border bg-ff-dark px-2 py-1.5 text-[13px] text-ff-paper outline-none focus:border-ff-ember">
+					for _, t := range LeaveTypes {
+						<option value={ t }>{ t }</option>
+					}
+				</select>
+			</div>
+			<button type="submit" class="rounded-sm bg-ff-ember px-3 py-2 text-[12px] font-medium uppercase tracking-[0.1em] text-[#1a1109] transition hover:bg-ff-ember-hover">Add leave</button>
+		</form>
 	</div>
 }
 

@@ -141,6 +141,31 @@ func (v ScheduleView) LineCode(lineID string) string {
 	return v.Data.LineCodes[lineID]
 }
 
+// ControllerName resolves a controller's DB id to its name (for leave rows).
+func (v ScheduleView) ControllerName(dbID int64) string {
+	id := strconv.FormatInt(dbID, 10)
+	for _, c := range v.Data.Controllers {
+		if c.ID == id {
+			return c.Name
+		}
+	}
+	return "—"
+}
+
+// PPWindow renders the selected scenario's 14-day pay-period window, so the user
+// can see which leave dates will actually drive overtime.
+func (v ScheduleView) PPWindow() string {
+	for _, sc := range v.Scenarios {
+		if sc.ID == v.ScenarioID {
+			return sc.PPStart.String() + " … " + sc.PPStart.AddDays(13).String()
+		}
+	}
+	return "—"
+}
+
+// LeaveTypes is the selectable leave-type set.
+var LeaveTypes = []string{"annual", "sick", "bid"}
+
 // hiddenField is a name/value pair rendered as a hidden input inside a small
 // standalone POST form (see the postButton component).
 type hiddenField struct {

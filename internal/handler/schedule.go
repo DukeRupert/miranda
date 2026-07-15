@@ -296,6 +296,54 @@ func DeleteController(st *store.Store) http.HandlerFunc {
 	}
 }
 
+// ---- leave mutations ------------------------------------------------------
+
+// CreateLeave handles POST /explore/leave: add a leave entry for a controller.
+// The date must be YYYY-MM-DD (guaranteed by the date input); a malformed date
+// is rejected rather than persisted so it can't poison scenario loads.
+func CreateLeave(st *store.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		scenarioID := formInt64(r, "scenario")
+		controllerID := formInt64(r, "controller_id")
+		date := strings.TrimSpace(r.FormValue("leave_date"))
+		if _, err := time.Parse("2006-01-02", date); err != nil {
+			http.Error(w, "leave date must be YYYY-MM-DD", http.StatusBadRequest)
+			return
+		}
+		h, _ := strconv.ParseFloat(strings.TrimSpace(r.FormValue("hours")), 64)
+		if h <= 0 {
+			h = 8
+		}
+		leaveType := r.FormValue("leave_type")
+		switch domain.LeaveType(leaveType) {
+		case domain.LeaveAnnual, domain.LeaveSick, domain.LeaveBid:
+		default:
+			leaveType = string(domain.LeaveAnnual)
+		}
+		if controllerID == 0 {
+			http.Error(w, "select a controller", http.StatusBadRequest)
+			return
+		}
+		if err := st.CreateLeave(r.Context(), scenarioID, controllerID, date, int(math.Round(h*60)), leaveType); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		redirectToScenario(w, r, scenarioID)
+	}
+}
+
+// DeleteLeave handles POST /explore/leave/delete.
+func DeleteLeave(st *store.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		scenarioID := formInt64(r, "scenario")
+		if err := st.DeleteLeave(r.Context(), formInt64(r, "leave_id")); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		redirectToScenario(w, r, scenarioID)
+	}
+}
+
 // ---- helpers --------------------------------------------------------------
 
 func hours(h float64) time.Duration { return time.Duration(h * float64(time.Hour)) }
