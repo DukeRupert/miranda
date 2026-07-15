@@ -120,6 +120,27 @@ func trim(f float64) string {
 	return strconv.FormatFloat(f, 'f', -1, 64)
 }
 
+// SlotStart renders a slot's start as "HHMM", or "" for an RDO (nil slot).
+func SlotStart(s *domain.ShiftTemplate) string {
+	if s == nil {
+		return ""
+	}
+	return s.Start.String()
+}
+
+// SlotDur renders a slot's duration in hours (no trailing zeros), or "" for RDO.
+func SlotDur(s *domain.ShiftTemplate) string {
+	if s == nil {
+		return ""
+	}
+	return trim(s.Duration.Hours())
+}
+
+// LineCode returns the display code for a domain line ID within the view.
+func (v ScheduleView) LineCode(lineID string) string {
+	return v.Data.LineCodes[lineID]
+}
+
 // hiddenField is a name/value pair rendered as a hidden input inside a small
 // standalone POST form (see the postButton component).
 type hiddenField struct {

@@ -126,6 +126,8 @@ func main() {
 	mux.Handle("POST /explore/scenarios", handler.CreateScenario(st))
 	mux.Handle("POST /explore/scenarios/duplicate", handler.DuplicateScenario(st))
 	mux.Handle("POST /explore/scenarios/delete", handler.DeleteScenario(st))
+	mux.Handle("POST /explore/lines", handler.SaveLine(st))
+	mux.Handle("POST /explore/lines/delete", handler.DeleteLine(st))
 	mux.Handle("GET /contact", handler.Contact())
 	mux.Handle("POST /contact", handler.ContactSubmit(mailer, cfg.TurnstileSecretKey))
 

@@ -2,9 +2,12 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/dukerupert/miranda/internal/coverage"
@@ -180,6 +183,73 @@ func DeleteScenario(st *store.Store) http.HandlerFunc {
 		}
 		redirect(w, r, "/explore")
 	}
+}
+
+// ---- line mutations -------------------------------------------------------
+
+// SaveLine handles POST /explore/lines: create (line_id=0) or update a line and
+// replace its seven day-slots. Each day d reads d{d}_start (HHMM, blank = RDO)
+// and d{d}_dur (hours).
+func SaveLine(st *store.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		scenarioID := formInt64(r, "scenario")
+		lineID := formInt64(r, "line_id")
+		code := strings.TrimSpace(r.FormValue("code"))
+		if code == "" {
+			code = "New"
+		}
+		var days [7]*store.Slot
+		for d := 0; d < 7; d++ {
+			days[d] = parseSlot(r.FormValue(fmt.Sprintf("d%d_start", d)), r.FormValue(fmt.Sprintf("d%d_dur", d)))
+		}
+
+		if lineID == 0 {
+			id, err := st.CreateLine(r.Context(), scenarioID, code, 1000) // appended after seeded lines
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			lineID = id
+		} else if err := st.UpdateLine(r.Context(), lineID, code); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if err := st.SaveLineDays(r.Context(), lineID, days); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		redirectToScenario(w, r, scenarioID)
+	}
+}
+
+// DeleteLine handles POST /explore/lines/delete.
+func DeleteLine(st *store.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		scenarioID := formInt64(r, "scenario")
+		if err := st.DeleteLine(r.Context(), formInt64(r, "line_id")); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		redirectToScenario(w, r, scenarioID)
+	}
+}
+
+// parseSlot builds a worked slot from a start (HHMM) and duration (hours). A
+// blank/invalid start or a non-positive duration means the day is an RDO (nil).
+func parseSlot(startStr, durStr string) *store.Slot {
+	startStr = strings.TrimSpace(startStr)
+	if startStr == "" {
+		return nil
+	}
+	tod, err := domain.ParseTimeOfDay(startStr)
+	if err != nil {
+		return nil
+	}
+	h, err := strconv.ParseFloat(strings.TrimSpace(durStr), 64)
+	if err != nil || h <= 0 {
+		return nil
+	}
+	return &store.Slot{StartMin: int(tod), DurationMin: int(math.Round(h * 60))}
 }
 
 // ---- helpers --------------------------------------------------------------

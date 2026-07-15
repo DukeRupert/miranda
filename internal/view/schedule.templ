@@ -1,6 +1,10 @@
 package view
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/dukerupert/miranda/internal/domain"
+)
 
 // ExplorePage is the scheduling-engine proof-of-concept explorer: edit the rule
 // set on the left, see the derived demand, minimum shift count, reference-schedule
@@ -38,8 +42,76 @@ templ exploreContent(v ScheduleView) {
 					@overtimePanel(v)
 				</div>
 			</div>
+			@scheduleEditors(v)
 		}
 	</section>
+}
+
+// scheduleEditors holds the persisted-schedule editors (lines, and — added in
+// later increments — controllers and leave).
+templ scheduleEditors(v ScheduleView) {
+	<div class="mt-14 space-y-12 border-t border-ff-border pt-12">
+		@linesEditor(v)
+	</div>
+}
+
+// linesEditor lists every line with its seven editable day-slots, plus a form
+// to add a new line. Each line is its own POST form (open, per POC decision).
+templ linesEditor(v ScheduleView) {
+	<div>
+		@panelHead("Lines", fmt.Sprintf("%d lines · edit shift slots per day", len(v.Data.Lines)))
+		<div class="space-y-3">
+			for _, line := range v.Data.Lines {
+				@lineForm(v, line, line.ID, v.LineCode(line.ID))
+			}
+			<p class="pt-4 text-[11px] font-medium uppercase tracking-wider text-ff-stone">Add a line</p>
+			@lineForm(v, domain.Line{}, "", "")
+		</div>
+	</div>
+}
+
+// lineForm renders one editable line (blank lineID = the add-new form). Each of
+// the 7 day cells is a free-form start (HHMM, blank = RDO) + duration (hours).
+templ lineForm(v ScheduleView, line domain.Line, lineID, code string) {
+	<form method="post" action="/explore/lines" class="rounded-sm border border-ff-border bg-ff-dark/40 p-4">
+		@CSRFField()
+		<input type="hidden" name="scenario" value={ fmt.Sprintf("%d", v.ScenarioID) }/>
+		<input type="hidden" name="line_id" value={ lineID }/>
+		<div class="flex flex-wrap items-end gap-3">
+			<div>
+				<label class="mb-1 block text-[10px] uppercase tracking-wider text-ff-stone">Line</label>
+				<input type="text" name="code" value={ code } placeholder="code" class="w-20 rounded-sm border border-ff-border bg-ff-dark px-2 py-1.5 text-[13px] font-medium text-ff-paper outline-none focus:border-ff-ember"/>
+			</div>
+			<div class="flex flex-1 flex-wrap gap-2">
+				for d := 0; d < 7; d++ {
+					@daySlotField(d, line.Days[d])
+				}
+			</div>
+			<div class="flex gap-2">
+				<button type="submit" class="rounded-sm bg-ff-ember px-3 py-2 text-[12px] font-medium uppercase tracking-[0.1em] text-[#1a1109] transition hover:bg-ff-ember-hover">
+					if lineID == "" {
+						Add
+					} else {
+						Save
+					}
+				</button>
+			</div>
+		</div>
+		if lineID != "" {
+			<div class="mt-2 flex justify-end">
+				<button type="submit" formaction="/explore/lines/delete" class="text-[11px] text-ff-stone transition hover:text-red-300">Delete line</button>
+			</div>
+		}
+	</form>
+}
+
+// daySlotField is one day's start + duration inputs (blank start = RDO).
+templ daySlotField(dayIdx int, s *domain.ShiftTemplate) {
+	<div class="w-[92px] rounded-sm border border-ff-border/60 bg-ff-dark/60 p-1.5">
+		<div class="mb-1 text-center text-[10px] font-medium uppercase tracking-wider text-ff-stone">{ Weekdays[dayIdx] }</div>
+		<input type="text" name={ fmt.Sprintf("d%d_start", dayIdx) } value={ SlotStart(s) } placeholder="RDO" maxlength="5" class="mb-1 w-full rounded-sm border border-ff-border bg-ff-dark px-1.5 py-1 text-center text-[12px] font-mono text-ff-paper outline-none focus:border-ff-ember"/>
+		<input type="text" name={ fmt.Sprintf("d%d_dur", dayIdx) } value={ SlotDur(s) } placeholder="h" class="w-full rounded-sm border border-ff-border bg-ff-dark px-1.5 py-1 text-center text-[12px] font-mono text-ff-ash outline-none focus:border-ff-ember"/>
+	</div>
 }
 
 // scenarioBar is the scenario selector plus create/duplicate/delete/seed actions.
