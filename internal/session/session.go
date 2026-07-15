@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	cookieName     = "session_token"
-	sessionMaxAge  = 7 * 24 * time.Hour
+	cookieName    = "session_token"
+	sessionMaxAge = 7 * 24 * time.Hour
 )
 
 type ctxKey struct{}
