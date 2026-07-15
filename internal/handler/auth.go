@@ -4,9 +4,9 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/firefly-software-mt/advanced-template/internal/session"
-	"github.com/firefly-software-mt/advanced-template/internal/store"
-	"github.com/firefly-software-mt/advanced-template/internal/view"
+	"github.com/dukerupert/miranda/internal/session"
+	"github.com/dukerupert/miranda/internal/store"
+	"github.com/dukerupert/miranda/internal/view"
 
 	"golang.org/x/crypto/bcrypt"
 )

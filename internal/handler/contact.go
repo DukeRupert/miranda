@@ -8,8 +8,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/firefly-software-mt/advanced-template/internal/mail"
-	"github.com/firefly-software-mt/advanced-template/internal/view"
+	"github.com/dukerupert/miranda/internal/mail"
+	"github.com/dukerupert/miranda/internal/view"
 )
 
 // Contact handles GET /contact and renders the contact form.

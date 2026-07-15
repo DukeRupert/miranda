@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/firefly-software-mt/advanced-template/internal/db"
+	"github.com/dukerupert/miranda/internal/db"
 
 	"golang.org/x/crypto/bcrypt"
 )

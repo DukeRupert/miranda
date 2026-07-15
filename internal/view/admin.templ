@@ -1,6 +1,6 @@
 package view
 
-import "github.com/firefly-software-mt/advanced-template/internal/session"
+import "github.com/dukerupert/miranda/internal/session"
 
 templ AdminPage(user *session.User) {
 	@Base("Admin", "Site administration.", adminContent(user))

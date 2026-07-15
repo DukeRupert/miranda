@@ -1,4 +1,4 @@
-module github.com/firefly-software-mt/advanced-template
+module github.com/dukerupert/miranda
 
 go 1.25.8
 
