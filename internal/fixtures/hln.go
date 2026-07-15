@@ -36,7 +36,7 @@ func HLNRules() domain.RuleSet {
 		MaxTimeOnPosition:   2 * time.Hour,
 		MinBreak:            15 * time.Minute,
 		MinStaffWhenOpen:    2,
-		TurnaroundWarnHours: 10 * time.Hour,
+		TurnaroundWarnHours: 12 * time.Hour, // flags the known M1 Thu->Fri quick-turn (~11h35m)
 		PositionSwapIsBreak: false,
 	}
 }
