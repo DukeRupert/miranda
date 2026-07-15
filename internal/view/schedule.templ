@@ -1,6 +1,10 @@
 package view
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/dukerupert/miranda/internal/domain"
+)
 
 // ExplorePage is the scheduling-engine proof-of-concept explorer: edit the rule
 // set on the left, see the derived demand, minimum shift count, reference-schedule
@@ -23,19 +27,300 @@ templ exploreContent(v ScheduleView) {
 			reference 9-line schedule would carry under those rules.
 		</p>
 
-		<div class="mt-12 grid gap-10 lg:grid-cols-[340px_1fr]">
-			@ruleForm(v)
-			<div class="min-w-0 space-y-10">
-				if v.Err != "" {
-					<div class="rounded-sm border border-red-500/40 bg-red-500/10 p-4 text-[14px] text-red-300">{ v.Err }</div>
-				} else {
+		@scenarioBar(v)
+		if v.HasScenarios() {
+			@scenarioSettings(v)
+		}
+
+		if !v.HasScenarios() {
+			@emptyState()
+		} else if v.Err != "" {
+			<div class="mt-8 rounded-sm border border-red-500/40 bg-red-500/10 p-4 text-[14px] text-red-300">{ v.Err }</div>
+		} else {
+			<div class="mt-10 grid gap-10 lg:grid-cols-[340px_1fr]">
+				@ruleForm(v)
+				<div class="min-w-0 space-y-10">
 					@demandPanel(v)
 					@schedulePanel(v)
 					@overtimePanel(v)
-				}
+				</div>
+			</div>
+			@scheduleEditors(v)
+		}
+	</section>
+}
+
+// scheduleEditors holds the persisted-schedule editors (lines, and — added in
+// later increments — controllers and leave).
+templ scheduleEditors(v ScheduleView) {
+	<div class="mt-14 space-y-12 border-t border-ff-border pt-12">
+		@linesEditor(v)
+		@controllersEditor(v)
+		@leaveEditor(v)
+	</div>
+}
+
+// leaveEditor lists existing leave entries and offers a form to add one. Only
+// leave dated within the pay-period window drives projected overtime.
+templ leaveEditor(v ScheduleView) {
+	<div>
+		@panelHead("Leave", fmt.Sprintf("%d entries · pay period %s", len(v.Data.LeaveRows), v.PPWindow()))
+		if len(v.Data.LeaveRows) > 0 {
+			<div class="mb-4 overflow-x-auto rounded-sm border border-ff-border">
+				<table class="w-full text-left text-[13px]">
+					<thead class="bg-ff-dark/60 text-[11px] uppercase tracking-wider text-ff-stone">
+						<tr>
+							<th class="px-4 py-2.5 font-medium">Controller</th>
+							<th class="px-4 py-2.5 font-medium">Date</th>
+							<th class="px-4 py-2.5 font-medium">Hours</th>
+							<th class="px-4 py-2.5 font-medium">Type</th>
+							<th class="px-4 py-2.5 font-medium"></th>
+						</tr>
+					</thead>
+					<tbody class="divide-y divide-ff-border text-ff-ash">
+						for _, lv := range v.Data.LeaveRows {
+							<tr>
+								<td class="px-4 py-2.5 text-ff-cream">{ v.ControllerName(lv.ControllerID) }</td>
+								<td class="px-4 py-2.5 font-mono">{ lv.Date.String() } ({ Weekdays[int(lv.Date.Weekday())] })</td>
+								<td class="px-4 py-2.5">{ Hours(lv.Hours) }</td>
+								<td class="px-4 py-2.5">{ string(lv.Type) }</td>
+								<td class="px-4 py-2.5 text-right">
+									<form method="post" action="/explore/leave/delete">
+										@CSRFField()
+										<input type="hidden" name="scenario" value={ fmt.Sprintf("%d", v.ScenarioID) }/>
+										<input type="hidden" name="leave_id" value={ fmt.Sprintf("%d", lv.ID) }/>
+										<button type="submit" class="text-[11px] text-ff-stone transition hover:text-red-300">Remove</button>
+									</form>
+								</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		}
+		<form method="post" action="/explore/leave" class="flex flex-wrap items-end gap-3 rounded-sm border border-ff-border bg-ff-dark/40 p-3">
+			@CSRFField()
+			<input type="hidden" name="scenario" value={ fmt.Sprintf("%d", v.ScenarioID) }/>
+			<div>
+				<label class="mb-1 block text-[10px] uppercase tracking-wider text-ff-stone">Controller</label>
+				<select name="controller_id" class="rounded-sm border border-ff-border bg-ff-dark px-2 py-1.5 text-[13px] text-ff-paper outline-none focus:border-ff-ember">
+					for _, c := range v.Data.Controllers {
+						<option value={ c.ID }>{ c.Name }</option>
+					}
+				</select>
+			</div>
+			<div>
+				<label class="mb-1 block text-[10px] uppercase tracking-wider text-ff-stone">Date</label>
+				<input type="date" name="leave_date" value={ scenarioPPStart(v) } class="rounded-sm border border-ff-border bg-ff-dark px-2 py-1.5 text-[13px] text-ff-paper outline-none focus:border-ff-ember"/>
+			</div>
+			<div>
+				<label class="mb-1 block text-[10px] uppercase tracking-wider text-ff-stone">Hours</label>
+				<input type="number" name="hours" value="8" step="0.5" min="0" class="w-20 rounded-sm border border-ff-border bg-ff-dark px-2 py-1.5 text-[13px] text-ff-paper outline-none focus:border-ff-ember"/>
+			</div>
+			<div>
+				<label class="mb-1 block text-[10px] uppercase tracking-wider text-ff-stone">Type</label>
+				<select name="leave_type" class="rounded-sm border border-ff-border bg-ff-dark px-2 py-1.5 text-[13px] text-ff-paper outline-none focus:border-ff-ember">
+					for _, t := range LeaveTypes {
+						<option value={ t }>{ t }</option>
+					}
+				</select>
+			</div>
+			<button type="submit" class="rounded-sm bg-ff-ember px-3 py-2 text-[12px] font-medium uppercase tracking-[0.1em] text-[#1a1109] transition hover:bg-ff-ember-hover">Add leave</button>
+		</form>
+	</div>
+}
+
+// controllersEditor lists every controller with editable name, AP/LC/CIC quals,
+// and line assignment, plus a form to add a new one.
+templ controllersEditor(v ScheduleView) {
+	<div>
+		@panelHead("Controllers", fmt.Sprintf("%d controllers · quals + line assignment", len(v.Data.Controllers)))
+		<div class="space-y-2">
+			for _, c := range v.Data.Controllers {
+				@controllerForm(v, c)
+			}
+			<p class="pt-4 text-[11px] font-medium uppercase tracking-wider text-ff-stone">Add a controller</p>
+			@controllerForm(v, domain.Controller{})
+		</div>
+	</div>
+}
+
+// controllerForm renders one editable controller (blank ID = the add-new form).
+templ controllerForm(v ScheduleView, c domain.Controller) {
+	<form method="post" action="/explore/controllers" class="flex flex-wrap items-end gap-3 rounded-sm border border-ff-border bg-ff-dark/40 p-3">
+		@CSRFField()
+		<input type="hidden" name="scenario" value={ fmt.Sprintf("%d", v.ScenarioID) }/>
+		<input type="hidden" name="controller_id" value={ c.ID }/>
+		<div>
+			<label class="mb-1 block text-[10px] uppercase tracking-wider text-ff-stone">Name</label>
+			<input type="text" name="name" value={ c.Name } placeholder="name" class="w-36 rounded-sm border border-ff-border bg-ff-dark px-2 py-1.5 text-[13px] text-ff-paper outline-none focus:border-ff-ember"/>
+		</div>
+		<div>
+			<label class="mb-1 block text-[10px] uppercase tracking-wider text-ff-stone">Quals</label>
+			<div class="flex items-center gap-3 py-1.5">
+				@qualCheck("qual_ap", "AP", c.Quals[domain.CapAP])
+				@qualCheck("qual_lc", "LC", c.Quals[domain.CapLC])
+				@qualCheck("qual_cic", "CIC", c.Quals[domain.CapCIC])
 			</div>
 		</div>
-	</section>
+		<div>
+			<label class="mb-1 block text-[10px] uppercase tracking-wider text-ff-stone">Line</label>
+			<select name="line_id" class="rounded-sm border border-ff-border bg-ff-dark px-2 py-1.5 text-[13px] text-ff-paper outline-none focus:border-ff-ember">
+				<option value="0" selected?={ c.LineID == nil }>— unassigned —</option>
+				for _, line := range v.Data.Lines {
+					<option value={ line.ID } selected?={ c.LineID != nil && *c.LineID == line.ID }>{ v.LineCode(line.ID) }</option>
+				}
+			</select>
+		</div>
+		<button type="submit" class="rounded-sm bg-ff-ember px-3 py-2 text-[12px] font-medium uppercase tracking-[0.1em] text-[#1a1109] transition hover:bg-ff-ember-hover">
+			if c.ID == "" {
+				Add
+			} else {
+				Save
+			}
+		</button>
+		if c.ID != "" {
+			<button type="submit" formaction="/explore/controllers/delete" class="text-[11px] text-ff-stone transition hover:text-red-300">Delete</button>
+		}
+	</form>
+}
+
+// qualCheck is a single labeled qualification checkbox (submits "1" when set).
+templ qualCheck(name, label string, checked bool) {
+	<label class="flex cursor-pointer items-center gap-1.5 text-[12px] text-ff-ash">
+		<input type="checkbox" name={ name } value="1" checked?={ checked } class="h-3.5 w-3.5 accent-ff-ember"/>
+		{ label }
+	</label>
+}
+
+// linesEditor lists every line with its seven editable day-slots, plus a form
+// to add a new line. Each line is its own POST form (open, per POC decision).
+templ linesEditor(v ScheduleView) {
+	<div>
+		@panelHead("Lines", fmt.Sprintf("%d lines · edit shift slots per day", len(v.Data.Lines)))
+		<div class="space-y-3">
+			for _, line := range v.Data.Lines {
+				@lineForm(v, line, line.ID, v.LineCode(line.ID))
+			}
+			<p class="pt-4 text-[11px] font-medium uppercase tracking-wider text-ff-stone">Add a line</p>
+			@lineForm(v, domain.Line{}, "", "")
+		</div>
+	</div>
+}
+
+// lineForm renders one editable line (blank lineID = the add-new form). Each of
+// the 7 day cells is a free-form start (HHMM, blank = RDO) + duration (hours).
+templ lineForm(v ScheduleView, line domain.Line, lineID, code string) {
+	<form method="post" action="/explore/lines" class="rounded-sm border border-ff-border bg-ff-dark/40 p-4">
+		@CSRFField()
+		<input type="hidden" name="scenario" value={ fmt.Sprintf("%d", v.ScenarioID) }/>
+		<input type="hidden" name="line_id" value={ lineID }/>
+		<div class="flex flex-wrap items-end gap-3">
+			<div>
+				<label class="mb-1 block text-[10px] uppercase tracking-wider text-ff-stone">Line</label>
+				<input type="text" name="code" value={ code } placeholder="code" class="w-20 rounded-sm border border-ff-border bg-ff-dark px-2 py-1.5 text-[13px] font-medium text-ff-paper outline-none focus:border-ff-ember"/>
+			</div>
+			<div class="flex flex-1 flex-wrap gap-2">
+				for d := 0; d < 7; d++ {
+					@daySlotField(d, line.Days[d])
+				}
+			</div>
+			<div class="flex gap-2">
+				<button type="submit" class="rounded-sm bg-ff-ember px-3 py-2 text-[12px] font-medium uppercase tracking-[0.1em] text-[#1a1109] transition hover:bg-ff-ember-hover">
+					if lineID == "" {
+						Add
+					} else {
+						Save
+					}
+				</button>
+			</div>
+		</div>
+		if lineID != "" {
+			<div class="mt-2 flex justify-end">
+				<button type="submit" formaction="/explore/lines/delete" class="text-[11px] text-ff-stone transition hover:text-red-300">Delete line</button>
+			</div>
+		}
+	</form>
+}
+
+// daySlotField is one day's start + duration inputs (blank start = RDO).
+templ daySlotField(dayIdx int, s *domain.ShiftTemplate) {
+	<div class="w-[92px] rounded-sm border border-ff-border/60 bg-ff-dark/60 p-1.5">
+		<div class="mb-1 text-center text-[10px] font-medium uppercase tracking-wider text-ff-stone">{ Weekdays[dayIdx] }</div>
+		<input type="text" name={ fmt.Sprintf("d%d_start", dayIdx) } value={ SlotStart(s) } placeholder="RDO" maxlength="5" class="mb-1 w-full rounded-sm border border-ff-border bg-ff-dark px-1.5 py-1 text-center text-[12px] font-mono text-ff-paper outline-none focus:border-ff-ember"/>
+		<input type="text" name={ fmt.Sprintf("d%d_dur", dayIdx) } value={ SlotDur(s) } placeholder="h" class="w-full rounded-sm border border-ff-border bg-ff-dark px-1.5 py-1 text-center text-[12px] font-mono text-ff-ash outline-none focus:border-ff-ember"/>
+	</div>
+}
+
+// scenarioBar is the scenario selector plus create/duplicate/delete/seed actions.
+templ scenarioBar(v ScheduleView) {
+	<div class="mt-10 flex flex-wrap items-center gap-3 rounded-sm border border-ff-border bg-ff-dark/40 p-4">
+		if v.HasScenarios() {
+			<form method="get" action="/explore" class="flex items-center gap-2">
+				<label class="text-[11px] font-medium uppercase tracking-[0.16em] text-ff-ember">Scenario</label>
+				<select name="scenario" onchange="this.form.submit()" class="rounded-sm border border-ff-border bg-ff-dark px-3 py-2 text-[13px] text-ff-paper outline-none focus:border-ff-ember">
+					for _, sc := range v.Scenarios {
+						<option value={ fmt.Sprintf("%d", sc.ID) } selected?={ sc.ID == v.ScenarioID }>{ sc.Name }</option>
+					}
+				</select>
+			</form>
+			<span class="text-[12px] font-light text-ff-stone">PP start { scenarioPPStart(v) }</span>
+			<div class="flex-1"></div>
+			@postButton("/explore/scenarios/duplicate", scenarioField(v.ScenarioID), "Duplicate", "ghost")
+			@postButton("/explore/scenarios/delete", scenarioField(v.ScenarioID), "Delete", "danger")
+		} else {
+			<span class="text-[13px] text-ff-ash">No scenarios yet.</span>
+			<div class="flex-1"></div>
+		}
+		<form method="post" action="/explore/scenarios" class="flex items-center gap-2">
+			@CSRFField()
+			<input type="text" name="name" placeholder="New scenario name" class="w-44 rounded-sm border border-ff-border bg-ff-dark px-3 py-2 text-[13px] text-ff-paper outline-none focus:border-ff-ember"/>
+			<button type="submit" class="rounded-sm border border-ff-border px-3 py-2 text-[12px] font-medium text-ff-cream transition hover:border-ff-ember">New</button>
+		</form>
+		<form method="post" action="/explore/seed">
+			@CSRFField()
+			<button type="submit" class="rounded-sm bg-ff-ember px-4 py-2 text-[12px] font-medium uppercase tracking-[0.1em] text-[#1a1109] transition hover:bg-ff-ember-hover">Seed HLN</button>
+		</form>
+	</div>
+}
+
+// scenarioSettings edits the selected scenario's name and pay-period start.
+templ scenarioSettings(v ScheduleView) {
+	<form method="post" action="/explore/scenarios/update" class="mt-3 flex flex-wrap items-end gap-3 rounded-sm border border-ff-border bg-ff-dark/20 px-4 py-3">
+		@CSRFField()
+		<input type="hidden" name="scenario" value={ fmt.Sprintf("%d", v.ScenarioID) }/>
+		<div>
+			<label class="mb-1 block text-[10px] uppercase tracking-wider text-ff-stone">Scenario name</label>
+			<input type="text" name="name" value={ v.ScenarioName() } class="w-56 rounded-sm border border-ff-border bg-ff-dark px-2 py-1.5 text-[13px] text-ff-paper outline-none focus:border-ff-ember"/>
+		</div>
+		<div>
+			<label class="mb-1 block text-[10px] uppercase tracking-wider text-ff-stone">Pay-period start (Sunday)</label>
+			<input type="date" name="pp_start" value={ scenarioPPStart(v) } class="rounded-sm border border-ff-border bg-ff-dark px-2 py-1.5 text-[13px] text-ff-paper outline-none focus:border-ff-ember"/>
+		</div>
+		<button type="submit" class="rounded-sm border border-ff-border px-3 py-2 text-[12px] font-medium text-ff-cream transition hover:border-ff-ember">Save settings</button>
+	</form>
+}
+
+// emptyState invites the user to seed the HLN reference on a fresh database.
+templ emptyState() {
+	<div class="mt-10 rounded-sm border border-ff-border bg-ff-dark/40 p-10 text-center">
+		<p class="text-[15px] text-ff-ash">No scenarios exist yet.</p>
+		<p class="mt-2 text-[13px] font-light text-ff-stone">
+			Seed the HLN 9-line reference (spec §8) to get a clean, editable starting point,
+			or create an empty scenario above.
+		</p>
+	</div>
+}
+
+// postButton renders a small standalone POST form styled as a button.
+templ postButton(action string, field hiddenField, label, variant string) {
+	<form method="post" action={ templ.SafeURL(action) }>
+		@CSRFField()
+		if field.Name != "" {
+			<input type="hidden" name={ field.Name } value={ field.Value }/>
+		}
+		<button type="submit" class={ postButtonClass(variant) }>{ label }</button>
+	</form>
 }
 
 // ruleForm is the editable rule set. Plain GET form; server recomputes on submit.
@@ -47,16 +332,13 @@ templ ruleForm(v ScheduleView) {
 		@fieldNum("Min staff when open", "min_staff", fmt.Sprintf("%d", v.Form.MinStaff), "1")
 		@fieldNum("Max time on position (h)", "max_pos", trim(v.Form.MaxTimeOnPositionH), "0.25")
 		@fieldNum("Max shift length (h)", "max_shift", trim(v.Form.MaxShiftH), "0.5")
-		<label class="flex cursor-pointer items-center gap-3 pt-1 text-[13px] text-ff-ash">
-			<input type="checkbox" name="leave" value="1" checked?={ v.Form.IncludeLeave } class="h-4 w-4 accent-ff-ember"/>
-			Include leave scenario (E1 on bid leave, week 1 Mon–Fri)
-		</label>
+		<input type="hidden" name="scenario" value={ fmt.Sprintf("%d", v.ScenarioID) }/>
 		<button type="submit" class="mt-2 w-full rounded-sm bg-ff-ember px-5 py-3 text-[12px] font-medium uppercase tracking-[0.12em] text-[#1a1109] transition hover:bg-ff-ember-hover active:scale-[0.99]">
 			Recompute &rarr;
 		</button>
 		<p class="pt-1 text-[11px] font-light leading-relaxed text-ff-stone">
-			Positions fixed at AP + LC. Candidate schedule is the HLN 9-line reference
-			(spec §8), staffed by nine CPC+CIC controllers.
+			Positions fixed at AP + LC. Rules are an exploratory overlay; the schedule
+			below is loaded from the selected scenario and is editable.
 		</p>
 	</form>
 }
