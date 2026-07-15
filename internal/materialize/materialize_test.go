@@ -24,26 +24,18 @@ func TestMaterialize_Baseline(t *testing.T) {
 		t.Fatalf("test assumes a Sunday start, got %v", ppStart.Weekday())
 	}
 
-	// No leave, all lines assigned -> no vacated/unfilled gaps.
+	// No leave, all lines assigned -> no vacated gaps.
 	if len(pp.Gaps) != 0 {
 		t.Errorf("baseline should have no vacated gaps, got %d: %+v", len(pp.Gaps), pp.Gaps)
 	}
 
-	// The structural mid-day dips still cost OT: the dip appears on Sun/Tue/Wed/Thu
-	// (4 days/week -> 8 days over the 14-day PP), each a 25-minute band short one
-	// body => 8 * 25min = 3h20m of projected OT.
-	wantOT := 8 * 25 * time.Minute
-	if pp.ProjectedOT != wantOT {
-		t.Errorf("baseline projected OT = %s, want %s", pp.ProjectedOT, wantOT)
+	// Under the rotation-aware rule the reference schedule is fully legal (the
+	// mid-day handoff dips are sub-cap), so it carries NO structural overtime.
+	if pp.ProjectedOT != 0 {
+		t.Errorf("baseline projected OT = %s, want 0", pp.ProjectedOT)
 	}
-	if len(pp.Uncovered) != 8 {
-		t.Errorf("expected 8 uncovered bands, got %d", len(pp.Uncovered))
-	}
-	// Every uncovered band is the 1345-1410 handoff, short by one body.
-	for _, b := range pp.Uncovered {
-		if b.Start != domain.MustParseTimeOfDay("1345") || b.End != domain.MustParseTimeOfDay("1410") || b.Deficit != 1 {
-			t.Errorf("unexpected uncovered band %+v", b)
-		}
+	if len(pp.Uncovered) != 0 {
+		t.Errorf("expected no uncovered bands at baseline, got %+v", pp.Uncovered)
 	}
 
 	// Sanity: 14 days of the 9-line pattern schedule a lot of shifts.
@@ -114,14 +106,16 @@ func TestMaterialize_LeaveDrivesOT(t *testing.T) {
 // coverage intact — no gap, no OT.
 func TestMaterialize_AbsorbedOverlap(t *testing.T) {
 	pos := []domain.Position{{ID: "AP", Requires: domain.CapAP}, {ID: "LC", Requires: domain.CapLC}}
-	f, err := domain.NewFacility("SM", "small", domain.MustParseTimeOfDay("0900"), domain.MustParseTimeOfDay("1300"), pos)
+	// Cap-length (2h) window so two remaining bodies legally cover it after the
+	// third goes on leave.
+	f, err := domain.NewFacility("SM", "small", domain.MustParseTimeOfDay("0900"), domain.MustParseTimeOfDay("1100"), pos)
 	if err != nil {
 		t.Fatal(err)
 	}
 	r := fixtures.HLNRules()
 
 	all := func(id string) domain.Line {
-		s := domain.ShiftTemplate{ID: id, Start: domain.MustParseTimeOfDay("0900"), Duration: 4 * time.Hour}
+		s := domain.ShiftTemplate{ID: id, Start: domain.MustParseTimeOfDay("0900"), Duration: 2 * time.Hour}
 		var days [7]*domain.ShiftTemplate
 		for i := range days {
 			days[i] = &s

@@ -46,9 +46,10 @@ func ValidateWeek(lines []domain.Line, occupants map[string]domain.QualSet, f do
 		return nil, err
 	}
 
+	_ = dt // demand timeline is displayed elsewhere; coverage checks derive from f,r directly
 	var vs []Violation
 	vs = append(vs, shiftLengthViolations(lines, r)...)
-	vs = append(vs, coverageViolations(lines, occupants, f, r, dt)...)
+	vs = append(vs, coverageViolations(lines, occupants, f, r)...)
 	vs = append(vs, sixOfSevenViolations(lines, r)...)
 
 	lineViol, err := lineQualificationViolations(lines, occupants, f, r)
@@ -84,10 +85,11 @@ func shiftLengthViolations(lines []domain.Line, r domain.RuleSet) []Violation {
 	return vs
 }
 
-// coverageViolations: for each weekday, the union of on-duty lines must satisfy
-// the demand at every minute. Each gap becomes one Illegal with the missing
-// capability vector in Detail.
-func coverageViolations(lines []domain.Line, occupants map[string]domain.QualSet, f domain.Facility, r domain.RuleSet, dt coverage.DemandTimeline) []Violation {
+// coverageViolations: each day's on-duty lines must satisfy the rotation-aware
+// coverage rule. Snapshot failures (understaffed / unfillable) are "coverage-gap"
+// Illegals with the missing vector; continuous tight-window breaches of the
+// on-position cap are "position-cap" Illegals.
+func coverageViolations(lines []domain.Line, occupants map[string]domain.QualSet, f domain.Facility, r domain.RuleSet) []Violation {
 	var vs []Violation
 	for day := 0; day < 7; day++ {
 		var working []coverage.WorkingShift
@@ -100,28 +102,51 @@ func coverageViolations(lines []domain.Line, occupants map[string]domain.QualSet
 				working = append(working, coverage.WorkingShift{LineID: line.ID, Template: *s, Quals: q})
 			}
 		}
-		for _, g := range coverage.DayCoverageGaps(working, f, r, dt) {
+		for _, g := range coverage.DayCoverageGaps(working, f, r) {
 			gap := g
-			missing := map[string]any{}
-			for c, n := range gap.Missing {
-				missing[string(c)] = n
+			rule, msg := "coverage-gap", ""
+			switch gap.Kind {
+			case coverage.GapCapTotal, coverage.GapCapAP, coverage.GapCapCIC:
+				rule = "position-cap"
+				msg = fmt.Sprintf("%s %s-%s: %s held for %s, exceeds on-position cap %s", weekdayName[day], gap.Start, gap.End, capLabel(gap.Kind), coverage.Hours(gap.Duration()), coverage.Hours(r.MaxTimeOnPosition))
+			default:
+				msg = fmt.Sprintf("%s %s-%s: %d present, short %s", weekdayName[day], gap.Start, gap.End, gap.PresentN, missingStr(gap.Missing))
 			}
-			vs = append(vs, Violation{
-				Rule:     "coverage-gap",
-				Severity: Illegal,
-				Interval: &gap.Demand,
-				Message:  fmt.Sprintf("%s %s-%s: %d present, demand %d (short %v)", weekdayName[day], gap.Start, gap.End, gap.PresentN, gap.Demand.MinTotal, missing),
-				Detail: map[string]any{
-					"weekday": weekdayName[day],
-					"start":   gap.Start.String(),
-					"end":     gap.End.String(),
-					"present": gap.PresentN,
-					"missing": missing,
-				},
-			})
+			detail := map[string]any{"weekday": weekdayName[day], "start": gap.Start.String(), "end": gap.End.String(), "present": gap.PresentN, "kind": gap.Kind}
+			if len(gap.Missing) > 0 {
+				detail["missing"] = missingStr(gap.Missing)
+			}
+			vs = append(vs, Violation{Rule: rule, Severity: Illegal, Message: msg, Detail: detail})
 		}
 	}
 	return vs
+}
+
+func capLabel(kind string) string {
+	switch kind {
+	case coverage.GapCapAP:
+		return "a lone AP-capable body"
+	case coverage.GapCapCIC:
+		return "a lone CIC holder"
+	default:
+		return "bare-minimum staffing"
+	}
+}
+
+func missingStr(m map[domain.Capability]int) string {
+	if len(m) == 0 {
+		return "—"
+	}
+	out := ""
+	for _, c := range []domain.Capability{coverage.TotalKey, domain.CapAP, domain.CapLC, domain.CapCIC} {
+		if n := m[c]; n > 0 {
+			if out != "" {
+				out += " "
+			}
+			out += fmt.Sprintf("%s:%d", c, n)
+		}
+	}
+	return out
 }
 
 // sixOfSevenViolations: no line works more than MaxDaysPerWindow days in any

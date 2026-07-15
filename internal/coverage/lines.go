@@ -3,6 +3,7 @@ package coverage
 import (
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/dukerupert/miranda/internal/domain"
 )
@@ -15,37 +16,67 @@ type WorkingShift struct {
 	Quals    domain.QualSet
 }
 
-// CoverageGap is a sub-interval of a day where the bodies actually present fail
-// to satisfy the demand. Missing carries the shortfall per requirement so the UI
-// and validators can say exactly what qualification was short.
+// Gap kinds.
+const (
+	GapUnderstaffed = "understaffed" // fewer than MinStaffWhenOpen present
+	GapUnfillable   = "unfillable"   // positions can't all be filled / no CIC placeable
+	GapCapTotal     = "cap-total"    // bare-minimum staffing held past MaxTimeOnPosition
+	GapCapAP        = "cap-ap"       // a lone AP-capable body pinned past the cap
+	GapCapCIC       = "cap-cic"      // a lone CIC holder pinned past the cap
+)
+
+// CoverageGap is a span of a day where staffing fails. Snapshot kinds
+// (understaffed/unfillable) report the shortfall in Missing; cap kinds report a
+// continuous tight window that ran longer than MaxTimeOnPosition (Over = excess).
 type CoverageGap struct {
 	Start    domain.TimeOfDay          `json:"start"`
 	End      domain.TimeOfDay          `json:"end"`
-	Demand   DemandInterval            `json:"demand"`
+	Kind     string                    `json:"kind"`
 	PresentN int                       `json:"present_n"`
-	Missing  map[domain.Capability]int `json:"missing"` // capability -> shortfall; key "" reserved for total headcount
+	Missing  map[domain.Capability]int `json:"missing,omitempty"`
 }
 
-// TotalKey is the pseudo-capability under which a headcount (MinTotal) shortfall
-// is reported in CoverageGap.Missing.
+// Duration is the length of the gap span.
+func (g CoverageGap) Duration() time.Duration { return g.End.Sub(g.Start) }
+
+// Deficit is how many bodies short the gap is: the headcount shortfall for a
+// snapshot gap, or one relief body for a cap-breach run.
+func (g CoverageGap) Deficit() int {
+	if n := g.Missing[TotalKey]; n > 0 {
+		return n
+	}
+	return 1
+}
+
+// TotalKey is the pseudo-capability under which a headcount shortfall is reported.
 const TotalKey domain.Capability = "TOTAL"
 
-// DayCoverageGaps evaluates one operating day and returns every sub-interval
-// where the present bodies fail Satisfies. It refines the coarse demand timeline
-// at every shift boundary: because a shift may start or end inside the core, the
-// present-set changes there, and coverage must be checked on each atomic slice —
-// not just per coarse demand interval. This is what catches a mid-day handoff
-// dip that a per-coarse-interval check would miss.
-func DayCoverageGaps(working []WorkingShift, f domain.Facility, r domain.RuleSet, dt DemandTimeline) []CoverageGap {
-	open, close := f.OpenTime, f.CloseTime
+// slice is one atomic time span of a day with the bodies present throughout it.
+type slice struct {
+	start, end domain.TimeOfDay
+	present    []domain.QualSet
+	okSnapshot bool
+}
 
-	// Collect boundaries within the operating window: open, close, demand edges,
-	// and every shift start/end (clamped).
+// DayCoverageGaps evaluates one operating day under the rotation-aware rule and
+// returns every failing span. It works in two passes over the atomic slices
+// (cut at every shift boundary):
+//
+//  1. Snapshot: each slice must have >= MinStaffWhenOpen bodies and a valid
+//     position assignment with a CIC on position — else it is an understaffed or
+//     unfillable gap.
+//  2. Continuous tight-runs: a maximal run of snapshot-OK slices that is "tight"
+//     on total headcount, on AP-capable bodies, or on CIC holders (no relief in
+//     that dimension) is a cap breach if it runs longer than MaxTimeOnPosition.
+//     Runs at or under the cap — the legal handoff dips — are fine.
+func DayCoverageGaps(working []WorkingShift, f domain.Facility, r domain.RuleSet) []CoverageGap {
+	open, close := f.OpenTime, f.CloseTime
+	capDur := r.MaxTimeOnPosition
+	numPos := len(f.Positions)
+	apPos := f.PositionsRequiring(domain.CapAP)
+
+	// Boundaries: open, close, and every shift start/end inside the window.
 	bset := map[domain.TimeOfDay]bool{open: true, close: true}
-	for _, iv := range dt {
-		bset[iv.Start] = true
-		bset[iv.End] = true
-	}
 	for _, w := range working {
 		for _, t := range []domain.TimeOfDay{w.Template.Start, w.Template.End()} {
 			if t > open && t < close {
@@ -59,42 +90,81 @@ func DayCoverageGaps(working []WorkingShift, f domain.Facility, r domain.RuleSet
 	}
 	sort.Slice(bounds, func(i, j int) bool { return bounds[i] < bounds[j] })
 
+	// Build slices and run the snapshot pass.
+	var slices []slice
 	var gaps []CoverageGap
 	for i := 0; i+1 < len(bounds); i++ {
 		a, b := bounds[i], bounds[i+1]
-		coarse, ok := dt.At(a)
-		if !ok {
-			continue // outside the operating window
-		}
-		// Bodies present for the whole slice [a,b): shift covers it start-to-end.
 		var present []domain.QualSet
 		for _, w := range working {
 			if w.Template.Start <= a && w.Template.End() >= b {
 				present = append(present, w.Quals)
 			}
 		}
-		sub := DemandInterval{Start: a, End: b, MinTotal: coarse.MinTotal, MinCapable: coarse.MinCapable}
-		if !Satisfies(present, f.Positions, sub, r) {
+		ok := len(present) >= r.MinStaffWhenOpen && canAssign(present, f.Positions)
+		slices = append(slices, slice{start: a, end: b, present: present, okSnapshot: ok})
+		if !ok {
+			kind := GapUnfillable
+			if len(present) < r.MinStaffWhenOpen {
+				kind = GapUnderstaffed
+			}
 			gaps = append(gaps, CoverageGap{
-				Start:    a,
-				End:      b,
-				Demand:   sub,
-				PresentN: len(present),
-				Missing:  shortfall(present, sub),
+				Start: a, End: b, Kind: kind, PresentN: len(present),
+				Missing: snapshotShortfall(present, f, r),
 			})
 		}
+	}
+
+	// Tight-run pass: one predicate per pinned dimension.
+	tight := []struct {
+		kind string
+		is   func(s slice) bool
+	}{
+		{GapCapTotal, func(s slice) bool { return len(s.present) <= numPos }},
+		{GapCapAP, func(s slice) bool { return countHolding(s.present, domain.CapAP) <= apPos }},
+		{GapCapCIC, func(s slice) bool { return countHolding(s.present, domain.CapCIC) <= cicOnPositionMin }},
+	}
+	for _, tp := range tight {
+		gaps = append(gaps, capRuns(slices, tp.is, capDur, tp.kind)...)
 	}
 	return gaps
 }
 
-// shortfall reports how far the present bodies fall below the demand, per
-// requirement. Only positive deficits are included.
-func shortfall(present []domain.QualSet, d DemandInterval) map[domain.Capability]int {
+// capRuns finds maximal runs of snapshot-OK slices where the tightness predicate
+// holds, and emits a gap for each run longer than the cap. Slices are contiguous
+// by construction, so a run is just a consecutive stretch matching the predicate.
+func capRuns(slices []slice, tight func(slice) bool, capDur time.Duration, kind string) []CoverageGap {
+	var gaps []CoverageGap
+	i := 0
+	for i < len(slices) {
+		if !slices[i].okSnapshot || !tight(slices[i]) {
+			i++
+			continue
+		}
+		j := i
+		for j < len(slices) && slices[j].okSnapshot && tight(slices[j]) {
+			j++
+		}
+		start, end := slices[i].start, slices[j-1].end
+		if end.Sub(start) > capDur {
+			gaps = append(gaps, CoverageGap{Start: start, End: end, Kind: kind, PresentN: len(slices[i].present)})
+		}
+		i = j
+	}
+	return gaps
+}
+
+// snapshotShortfall reports how far a slice falls below the snapshot minimum.
+func snapshotShortfall(present []domain.QualSet, f domain.Facility, r domain.RuleSet) map[domain.Capability]int {
 	out := map[domain.Capability]int{}
-	if def := d.MinTotal - len(present); def > 0 {
+	if def := r.MinStaffWhenOpen - len(present); def > 0 {
 		out[TotalKey] = def
 	}
-	for c, need := range d.MinCapable {
+	for _, c := range []domain.Capability{domain.CapAP, domain.CapLC, domain.CapCIC} {
+		need := f.PositionsRequiring(c)
+		if c == domain.CapCIC {
+			need = cicOnPositionMin
+		}
 		if def := need - countHolding(present, c); def > 0 {
 			out[c] = def
 		}
@@ -118,9 +188,11 @@ func LineQualRequirements(
 	f domain.Facility,
 	r domain.RuleSet,
 ) (map[string]domain.QualSet, error) {
-	dt, err := ComputeDemand(f, r)
-	if err != nil {
+	if err := r.Validate(); err != nil {
 		return nil, err
+	}
+	if f.CloseTime <= f.OpenTime {
+		return nil, errOvernight(f)
 	}
 
 	// Effective occupant quals: provided value, or best-case CPC+CIC when a line
@@ -151,7 +223,7 @@ func LineQualRequirements(
 			}
 			return m
 		}
-		baseGaps := len(weekGapSet(lines, occWith("", false), f, r, dt))
+		baseGaps := len(weekGapSet(lines, occWith("", false), f, r))
 
 		result := domain.QualSet{}
 		for _, c := range []domain.Capability{domain.CapAP, domain.CapLC, domain.CapCIC} {
@@ -160,7 +232,7 @@ func LineQualRequirements(
 			// introduces MORE gaps than the full-quals baseline. Comparing gap
 			// counts (rather than a bare satisfiable bool) keeps the result
 			// meaningful even when the schedule already dips somewhere else.
-			if len(weekGapSet(lines, occWith(c, true), f, r, dt)) > baseGaps {
+			if len(weekGapSet(lines, occWith(c, true), f, r)) > baseGaps {
 				result[c] = true
 			}
 		}
@@ -171,7 +243,7 @@ func LineQualRequirements(
 
 // weekGapSet returns the set of distinct coverage-gap slices across the repeating
 // week, keyed by day+span, given the occupant quals.
-func weekGapSet(lines []domain.Line, occupants map[string]domain.QualSet, f domain.Facility, r domain.RuleSet, dt DemandTimeline) map[string]bool {
+func weekGapSet(lines []domain.Line, occupants map[string]domain.QualSet, f domain.Facility, r domain.RuleSet) map[string]bool {
 	out := map[string]bool{}
 	for day := 0; day < 7; day++ {
 		var working []WorkingShift
@@ -184,8 +256,8 @@ func weekGapSet(lines []domain.Line, occupants map[string]domain.QualSet, f doma
 				working = append(working, WorkingShift{LineID: line.ID, Template: *s, Quals: q})
 			}
 		}
-		for _, g := range DayCoverageGaps(working, f, r, dt) {
-			out[fmt.Sprintf("%d|%s|%s", day, g.Start, g.End)] = true
+		for _, g := range DayCoverageGaps(working, f, r) {
+			out[fmt.Sprintf("%d|%s|%s|%s", day, g.Kind, g.Start, g.End)] = true
 		}
 	}
 	return out

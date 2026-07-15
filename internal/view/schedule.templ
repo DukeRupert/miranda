@@ -113,6 +113,12 @@ templ demandPanel(v ScheduleView) {
 			@stat(fmt.Sprintf("%d", v.MinDaily), "min shifts / day")
 			@stat(fmt.Sprintf("%d", v.WeeklyMin), "min shifts / week")
 		</div>
+		<p class="mt-4 text-[12px] font-light leading-relaxed text-ff-stone">
+			The core is the target staffing, but the rule the engine enforces is that no
+			continuous bare-minimum ({ fmt.Sprintf("%d", v.Rules.MinStaffWhenOpen) }-body) window may run longer than the
+			{ Hours(v.Rules.MaxTimeOnPosition) } on-position cap. Brief handoff dips at shift changes are legal —
+			which is why a schedule can validate clean while momentarily dipping below the core.
+		</p>
 	</div>
 }
 

@@ -14,6 +14,7 @@
 package coverage
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/dukerupert/miranda/internal/domain"
@@ -126,54 +127,71 @@ func ComputeDemand(f domain.Facility, r domain.RuleSet) (DemandTimeline, error) 
 }
 
 // MinDailyShiftInstances is the minimum number of shift-instances (each no
-// longer than MaxShiftHours, none extending past Close) needed to cover the
-// demand timeline's MinTotal at every minute of the operating day.
+// longer than MaxShiftHours, none past Close) that can legally cover the
+// operating day under the rotation-aware rule: at least MinStaffWhenOpen bodies
+// present at all times, and no continuous minimum-staffed window longer than
+// MaxTimeOnPosition (a longer bare-minimum window would pin someone on position
+// past the cap). Brief sub-cap dips to the minimum at shift handoffs are legal,
+// so this is NOT "cover a fixed 3-in-the-core demand".
 //
-// It is a covering optimization, not hours ÷ shift-length. The engine solves it
-// with a left-to-right greedy: whenever the count of active shifts drops below
-// demand, open a new shift that starts at that minute and runs as far right as
-// the rules allow (min(now+MaxShiftHours, Close)). Starting at the deficit
-// minute and maximizing right-reach is an exchange-argument-optimal placement.
+// For the standard operating shape (a day longer than one shift) the optimum has
+// a clean structure: MinStaffWhenOpen openers + MinStaffWhenOpen closers, plus a
+// single relief layer spanning the core. Each relief shift covers MaxShiftHours
+// and may leave a gap of up to MaxTimeOnPosition before the next (the legal dip),
+// so it reaches MaxShiftHours+MaxTimeOnPosition of core per shift:
 //
-// For the HLN parameters this returns 6 at a 10h cap. Note it returns 7 at an 8h
-// cap — NOT 6 as spec R2 asserts: the close-shoulder relay cannot run past
-// Close, so a bare pair of openers (pinned to Open+8h) and closers (pinned to
-// Close-8h) leave a ~25-minute core band that a single mid shift can't lift to
-// three, forcing a seventh instance. See POC-NOTES.md.
+//	total = 2*MinStaffWhenOpen + ceil( max(0, W - 2*cap) / (MaxShiftHours + cap) )
+//
+// where W = Close-Open and cap = MaxTimeOnPosition. For HLN this is 6 at both an
+// 8h and a 10h cap and 5 at a 13h cap — matching spec R2/R3. (An earlier
+// conservative "3 across the whole core" model gave 7 at 8h; the rotation-aware
+// rule is the correct one — see POC-NOTES.md.)
 func MinDailyShiftInstances(f domain.Facility, r domain.RuleSet) (int, error) {
-	dt, err := ComputeDemand(f, r)
-	if err != nil {
+	if err := r.Validate(); err != nil {
 		return 0, err
 	}
-	maxLen := domain.TimeOfDay(r.MaxShiftHours / time.Minute)
-	open, close := f.OpenTime, f.CloseTime
+	if f.CloseTime <= f.OpenTime {
+		return 0, errOvernight(f)
+	}
+	w := int(f.CloseTime - f.OpenTime)
+	capMin := int(r.MaxTimeOnPosition / time.Minute)
+	m := int(r.MaxShiftHours / time.Minute)
+	s := r.MinStaffWhenOpen
 
-	demandAt := func(t domain.TimeOfDay) int {
-		if iv, ok := dt.At(t); ok {
-			return iv.MinTotal
+	// Short day: a single shift spans the whole window. Need s bodies, plus one
+	// relief body if the day itself exceeds the on-position cap.
+	if w <= m {
+		if w > capMin {
+			return s + 1, nil
 		}
+		return s, nil
+	}
+
+	// Standard day: distinct openers and closers plus a relief layer.
+	core := w - 2*capMin
+	mids := 0
+	if core > 0 {
+		mids = ceilDiv(core, m+capMin)
+	} else if w > capMin {
+		mids = 1 // pathological (max shift < 2*cap) — still need to break the run
+	}
+	return 2*s + mids, nil
+}
+
+func ceilDiv(a, b int) int {
+	if b <= 0 {
 		return 0
 	}
+	return (a + b - 1) / b
+}
 
-	count := 0
-	var ends []domain.TimeOfDay // end times of currently-active shifts
-	for t := open; t < close; t++ {
-		// Expire shifts that have ended by t.
-		active := ends[:0]
-		for _, e := range ends {
-			if e > t {
-				active = append(active, e)
-			}
-		}
-		ends = active
-		for len(ends) < demandAt(t) {
-			end := t + maxLen
-			if end > close {
-				end = close
-			}
-			ends = append(ends, end)
-			count++
-		}
+// Hours renders a duration compactly, e.g. "12h25m" or "2h".
+func Hours(d time.Duration) string {
+	d = d.Round(time.Minute)
+	h := int(d / time.Hour)
+	m := int((d % time.Hour) / time.Minute)
+	if m == 0 {
+		return fmt.Sprintf("%dh", h)
 	}
-	return count, nil
+	return fmt.Sprintf("%dh%02dm", h, m)
 }

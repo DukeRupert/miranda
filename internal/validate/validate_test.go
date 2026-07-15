@@ -37,13 +37,13 @@ func TestV1_ShiftLength(t *testing.T) {
 	}
 }
 
-// V2: removing the 1210 (M8b) line opens coverage violations for the late core,
-// with the missing vector in Detail. We drop M8b from the 9-line fixture on
-// Monday and expect new coverage gaps in the 1545-2010 late-core band.
+// V2: removing the 1210 (M8b) line strands the evening at two bodies. After M8a
+// ends (1545) only the two L8 lines remain until close (2210) — a continuous
+// 6h25m bare-minimum window, far past the on-position cap: a position-cap breach.
 func TestV2_CoverageGapDetail(t *testing.T) {
 	f, r := fixtures.HLNFacility(), fixtures.HLNRules()
 
-	// Baseline Monday is clean (7 instances). Remove the M3 line's Monday M8b.
+	// Baseline Monday is clean. Remove the M3 line's Monday M8b.
 	lines := fixtures.HLNLines()
 	for i := range lines {
 		if lines[i].ID == "M3" {
@@ -54,22 +54,19 @@ func TestV2_CoverageGapDetail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gaps := byRule(vs, "coverage-gap")
-	// Find a Monday gap covering part of the late core after M8a shifts end (1545).
-	var lateGap *validate.Violation
-	for i := range gaps {
-		if gaps[i].Detail["weekday"] == "Mon" {
-			lateGap = &gaps[i]
+	caps := byRule(vs, "position-cap")
+	var mon *validate.Violation
+	for i := range caps {
+		if caps[i].Detail["weekday"] == "Mon" {
+			mon = &caps[i]
 		}
 	}
-	if lateGap == nil {
-		t.Fatalf("expected Monday coverage gaps after removing M8b, got %+v", gaps)
+	if mon == nil {
+		t.Fatalf("expected a Monday position-cap breach after removing M8b, got %+v", vs)
 	}
-	if _, ok := lateGap.Detail["missing"]; !ok {
-		t.Errorf("coverage gap should carry a missing vector, got %+v", lateGap.Detail)
-	}
-	if lateGap.Interval == nil {
-		t.Errorf("coverage gap should reference the demand interval")
+	// The stranded window runs into the evening (starts at 1545 when M8a ends).
+	if mon.Detail["start"] != "1545" {
+		t.Errorf("expected the breach to start at 1545, got %v", mon.Detail["start"])
 	}
 }
 
@@ -140,9 +137,9 @@ func TestV4_BiweeklyHours(t *testing.T) {
 	}
 }
 
-// V5: the HLN 9-line fixture has no structural Illegals (shift length,
-// six-of-seven, line-qualification) and exactly the known M1 turnaround Warning.
-// The only Illegals are the documented mid-day coverage dips.
+// V5: the HLN 9-line fixture validates clean under the rotation-aware rule —
+// zero Illegal (no coverage gaps, no position-cap breaches, no structural
+// violations) and exactly the known M1 Thu->Fri turnaround Warning.
 func TestV5_NineLineFixture(t *testing.T) {
 	f, r := fixtures.HLNFacility(), fixtures.HLNRules()
 	vs, err := validate.ValidateWeek(fixtures.HLNLines(), fixtures.OccupantQuals(), f, r)
@@ -150,29 +147,12 @@ func TestV5_NineLineFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, rule := range []string{"max-shift-hours", "six-of-seven", "line-qualification"} {
-		if hits := byRule(vs, rule); len(hits) != 0 {
-			t.Errorf("expected no %s violations, got %+v", rule, hits)
-		}
+	if ill, _ := validate.Count(vs); ill != 0 {
+		t.Errorf("expected zero Illegal violations, got %d: %+v", ill, vs)
 	}
-
 	turns := byRule(vs, "turnaround")
 	if len(turns) != 1 || turns[0].LineID != "M1" || turns[0].Severity != validate.Warning {
 		t.Errorf("expected exactly the M1 turnaround Warning, got %+v", turns)
-	}
-
-	// The only Illegals are coverage dips, all at the 1345-1410 handoff.
-	for _, v := range vs {
-		if v.Severity != validate.Illegal {
-			continue
-		}
-		if v.Rule != "coverage-gap" {
-			t.Errorf("unexpected Illegal rule %q: %s", v.Rule, v.Message)
-		}
-	}
-	gaps := byRule(vs, "coverage-gap")
-	if len(gaps) != 4 { // Sun, Tue, Wed, Thu
-		t.Errorf("expected 4 coverage-dip Illegals, got %d", len(gaps))
 	}
 }
 
@@ -183,14 +163,16 @@ func TestV6_LineQualification(t *testing.T) {
 	// LC-only. Here we make the *coverage-critical* line require CIC and assign an
 	// occupant that lacks it.
 	pos := []domain.Position{{ID: "AP", Requires: domain.CapAP}, {ID: "LC", Requires: domain.CapLC}}
-	f, err := domain.NewFacility("SM", "small", tod("0900"), tod("1300"), pos)
+	// Cap-length (2h) window so two all-day bodies are legal without a relief
+	// layer — isolating the line-qualification check from the rotation rule.
+	f, err := domain.NewFacility("SM", "small", tod("0900"), tod("1100"), pos)
 	if err != nil {
 		t.Fatal(err)
 	}
 	r := fixtures.HLNRules()
 
 	all := func(id string) domain.Line {
-		s := domain.ShiftTemplate{ID: id, Start: tod("0900"), Duration: 4 * time.Hour}
+		s := domain.ShiftTemplate{ID: id, Start: tod("0900"), Duration: 2 * time.Hour}
 		var days [7]*domain.ShiftTemplate
 		for i := range days {
 			days[i] = &s

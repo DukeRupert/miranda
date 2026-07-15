@@ -21,72 +21,55 @@ func dayShifts(lines []domain.Line, occ map[string]domain.QualSet, day int) []co
 	return out
 }
 
-// The 9-line reference fixture (spec §8) does NOT fully satisfy its own derived
-// demand: the four 6-instance days (Sun/Tue/Wed/Thu) dip to 2 bodies during the
-// 1345-1410 mid-day handoff, when the E8 line has ended (1345) and the L8 line
-// has not yet started (1410), leaving only the two M-shifts against a core that
-// the conservative demand model requires be staffed at 3. The 7-instance days
-// (Mon/Fri/Sat) carry an extra M-shift and are clean.
-//
-// This is a real engine finding, not a test contrivance — it is exactly the kind
-// of non-obvious coverage hole the tool exists to surface. See POC-NOTES.md.
-func TestNineLineCoverage_KnownDips(t *testing.T) {
+// Under the rotation-aware rule the 9-line reference fixture (spec §8) is fully
+// clean: the 1345-1410 mid-day handoff on the 6-instance days drops to 2 bodies
+// for only 25 minutes — well under the 2h on-position cap — so it is a legal dip,
+// not a coverage gap. Every day validates with zero gaps.
+func TestNineLineCoverage_Clean(t *testing.T) {
 	f, r := fixtures.HLNFacility(), fixtures.HLNRules()
-	dt, _ := coverage.ComputeDemand(f, r)
 	occ := fixtures.OccupantQuals()
-
-	dipDays := map[int]bool{0: true, 2: true, 3: true, 4: true} // Sun, Tue, Wed, Thu
-	cleanDays := map[int]bool{1: true, 5: true, 6: true}        // Mon, Fri, Sat
-
 	for day := 0; day < 7; day++ {
-		gaps := coverage.DayCoverageGaps(dayShifts(fixtures.HLNLines(), occ, day), f, r, dt)
-		switch {
-		case dipDays[day]:
-			if len(gaps) != 1 {
-				t.Errorf("day %d: expected exactly 1 dip, got %d: %+v", day, len(gaps), gaps)
-				continue
-			}
-			g := gaps[0]
-			if g.Start != tod("1345") || g.End != tod("1410") {
-				t.Errorf("day %d: dip at %s-%s, expected 1345-1410", day, g.Start, g.End)
-			}
-			if g.PresentN != 2 || g.Missing[coverage.TotalKey] != 1 {
-				t.Errorf("day %d: expected present=2 total-short=1, got present=%d missing=%v", day, g.PresentN, g.Missing)
-			}
-		case cleanDays[day]:
-			if len(gaps) != 0 {
-				t.Errorf("day %d: expected clean coverage, got %+v", day, gaps)
-			}
+		if gaps := coverage.DayCoverageGaps(dayShifts(fixtures.HLNLines(), occ, day), f, r); len(gaps) != 0 {
+			t.Errorf("day %d: expected clean coverage, got %+v", day, gaps)
 		}
 	}
 }
 
 // (a): the all-CPC-with-CIC skeleton for a 6-instance day (2xE8, M8a, M8b, 2xL8)
-// covers the whole day EXCEPT the 1345-1410 handoff band — the same dip as
-// above. A corrected day that adds a second M8a (mirroring the 7-instance days)
-// is fully clean. This pins the fact that the skeleton's coverage hole is about
-// the mid-day handoff, not qualifications.
+// covers the whole day. Its only 2-body stretch mid-day (13:45-14:10, 25 min) is
+// under the cap, so it is clean. Stretching that dip past the cap (delaying the
+// closers) turns it into a position-cap breach.
 func TestSkeletonCoverage(t *testing.T) {
 	f, r := fixtures.HLNFacility(), fixtures.HLNRules()
-	dt, _ := coverage.ComputeDemand(f, r)
 	tpl := fixtures.Templates()
 	cpc := domain.CPC(true)
-
 	shift := func(id string) coverage.WorkingShift {
 		return coverage.WorkingShift{LineID: id, Template: tpl[id], Quals: cpc}
 	}
 
-	// 6-instance skeleton.
+	// 6-instance skeleton -> clean under the rotation-aware rule.
 	skeleton := []coverage.WorkingShift{shift("E8"), shift("E8"), shift("M8a"), shift("M8b"), shift("L8"), shift("L8")}
-	gaps := coverage.DayCoverageGaps(skeleton, f, r, dt)
-	if len(gaps) != 1 || gaps[0].Start != tod("1345") || gaps[0].End != tod("1410") {
-		t.Errorf("6-instance skeleton: expected one 1345-1410 dip, got %+v", gaps)
+	if gaps := coverage.DayCoverageGaps(skeleton, f, r); len(gaps) != 0 {
+		t.Errorf("6-instance skeleton should be clean, got %+v", gaps)
 	}
 
-	// Corrected: add a second M8a (7 instances) -> fully clean.
-	corrected := append(skeleton, shift("M8a"))
-	if g := coverage.DayCoverageGaps(corrected, f, r, dt); len(g) != 0 {
-		t.Errorf("corrected 7-instance day should be clean, got %+v", g)
+	// A 4h facility staffed by exactly two bodies for the whole window: that is a
+	// continuous bare-minimum (2-body) stretch of 4h, twice the on-position cap,
+	// so it is a cap-total breach.
+	sf, err := domain.NewFacility("CB", "capbreach", tod("0600"), tod("1000"), f.Positions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	span := domain.ShiftTemplate{ID: "D4", Start: tod("0600"), Duration: 4 * time.Hour}
+	two := []coverage.WorkingShift{{Template: span, Quals: cpc}, {Template: span, Quals: cpc}}
+	sawCap := false
+	for _, g := range coverage.DayCoverageGaps(two, sf, r) {
+		if g.Kind == coverage.GapCapTotal && g.Start == tod("0600") && g.End == tod("1000") {
+			sawCap = true
+		}
+	}
+	if !sawCap {
+		t.Errorf("a 4h two-body window should be a cap-total breach")
 	}
 }
 
@@ -95,7 +78,6 @@ func TestSkeletonCoverage(t *testing.T) {
 // bodies opens qualification gaps.
 func TestCoverage_QualSensitivity(t *testing.T) {
 	f, r := fixtures.HLNFacility(), fixtures.HLNRules()
-	dt, _ := coverage.ComputeDemand(f, r)
 	tpl := fixtures.Templates()
 
 	// All LC-only: every position-AP requirement fails across the day.
@@ -107,7 +89,7 @@ func TestCoverage_QualSensitivity(t *testing.T) {
 		shift("E8", lc), shift("E8", lc), shift("M8a", lc), shift("M8a", lc),
 		shift("M8b", lc), shift("L8", lc), shift("L8", lc),
 	}
-	gaps := coverage.DayCoverageGaps(allLC, f, r, dt)
+	gaps := coverage.DayCoverageGaps(allLC, f, r)
 	if len(gaps) == 0 {
 		t.Fatal("all-LC-only day should have AP coverage gaps")
 	}
@@ -127,14 +109,16 @@ func TestCoverage_QualSensitivity(t *testing.T) {
 // {AP, CIC} but NOT LC — the "middle case" the spec calls out. (spec §4.3)
 func TestLineQualRequirements(t *testing.T) {
 	pos := []domain.Position{{ID: "AP", Requires: domain.CapAP}, {ID: "LC", Requires: domain.CapLC}}
-	f, err := domain.NewFacility("SM", "small", tod("0900"), tod("1300"), pos) // 4h == 2*cap -> no core
+	// A cap-length window (2h) so two all-day bodies are legal without a relief
+	// layer — isolating the qualification requirement from the rotation rule.
+	f, err := domain.NewFacility("SM", "small", tod("0900"), tod("1100"), pos)
 	if err != nil {
 		t.Fatal(err)
 	}
 	r := fixtures.HLNRules()
 
 	all := func(id string) domain.Line {
-		s := domain.ShiftTemplate{ID: id, Start: tod("0900"), Duration: 4 * time.Hour}
+		s := domain.ShiftTemplate{ID: id, Start: tod("0900"), Duration: 2 * time.Hour}
 		var days [7]*domain.ShiftTemplate
 		for i := range days {
 			days[i] = &s

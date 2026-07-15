@@ -82,13 +82,9 @@ func TestComputeDemand_BoundaryFlip(t *testing.T) {
 	}
 }
 
-// R2/R3: MinDailyShiftInstances is the general covering minimum.
-//
-// NOTE ON SPEC DEVIATION: spec R2 asserts the answer stays 6 whether the shift
-// cap is 8h or 10h. A faithful minute-level model gives 6 at 10h but 7 at 8h —
-// the close-shoulder relay can't run past Close, so the openers/closers can't
-// stretch to cover the mid-core band, forcing a 7th instance. We assert the
-// engine's correct values. See POC-NOTES.md.
+// R2/R3: MinDailyShiftInstances under the rotation-aware rule. Legal handoff
+// dips let the openers/closers hand off through a brief sub-cap 2-body window, so
+// six shifts suffice at both an 8h and a 10h cap (spec R2), and five at 13h (R3).
 func TestMinDailyShiftInstances(t *testing.T) {
 	f := fixtures.HLNFacility()
 	cases := []struct {
@@ -96,7 +92,7 @@ func TestMinDailyShiftInstances(t *testing.T) {
 		want  int
 	}{
 		{10, 6}, // spec R2
-		{8, 7},  // spec R2 says 6; correct value is 7 (documented deviation)
+		{8, 6},  // spec R2
 		{13, 5}, // spec R3
 	}
 	for _, tc := range cases {

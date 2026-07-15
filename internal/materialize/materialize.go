@@ -73,8 +73,8 @@ func Materialize(
 	f domain.Facility,
 	r domain.RuleSet,
 ) (PayPeriod, error) {
-	dt, err := coverage.ComputeDemand(f, r)
-	if err != nil {
+	// Validate rules / operating window up front (same gate ComputeDemand uses).
+	if _, err := coverage.ComputeDemand(f, r); err != nil {
 		return PayPeriod{}, err
 	}
 
@@ -123,20 +123,23 @@ func Materialize(
 			pp.Shifts = append(pp.Shifts, ScheduledShift{Date: date, ControllerID: ctrl.ID, Template: *s, Source: "line"})
 		}
 
-		// Actual coverage after leave/vacancies -> uncovered bands + OT.
-		for _, g := range coverage.DayCoverageGaps(working, f, r, dt) {
-			deficit := g.Demand.MinTotal - g.PresentN
-			if deficit < 1 {
-				deficit = 1 // a qualification-only hole still needs one callout
+		// Actual coverage after leave/vacancies -> uncovered bands + OT. A snapshot
+		// gap costs deficit bodies for its whole span; a cap-breach run costs one
+		// relief body for the time it runs over the on-position cap.
+		for _, g := range coverage.DayCoverageGaps(working, f, r) {
+			otSpan := g.Duration()
+			switch g.Kind {
+			case coverage.GapCapTotal, coverage.GapCapAP, coverage.GapCapCIC:
+				otSpan = g.Duration() - r.MaxTimeOnPosition // excess over the cap
 			}
 			pp.Uncovered = append(pp.Uncovered, UncoveredBand{
 				Date:     date,
 				Start:    g.Start,
 				End:      g.End,
-				Deficit:  deficit,
+				Deficit:  g.Deficit(),
 				Requires: capsShort(g.Missing),
 			})
-			pp.ProjectedOT += time.Duration(deficit) * g.Demand.Duration()
+			pp.ProjectedOT += time.Duration(g.Deficit()) * otSpan
 		}
 	}
 

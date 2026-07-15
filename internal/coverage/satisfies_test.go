@@ -70,18 +70,21 @@ func TestSatisfies_PositionSwap(t *testing.T) {
 	twoCPC := []domain.QualSet{domain.CPC(true), domain.CPC(true)}
 	cpcPlusLC := []domain.QualSet{domain.CPC(true), domain.LCOnly(true)}
 
+	// Swap-is-break: two fully cross-qualified bodies can hold the 3h window.
 	if !coverage.Satisfies(twoCPC, hlnPositions, iv, r) {
 		t.Errorf("two CPCs should hold a 3h window when swap-is-break")
 	}
+	// CPC + LC-only cannot: the LC-only can't backfill AP, so the CPC is pinned.
 	if coverage.Satisfies(cpcPlusLC, hlnPositions, iv, r) {
-		t.Errorf("CPC + LC-only should NOT hold a 3h window even when swap-is-break (CPC pinned on AP)")
+		t.Errorf("CPC + LC-only should NOT hold a 3h window even when swap-is-break")
 	}
-	// With the flag off, the hand-built low interval imposes no rotation cap, so
-	// the length check is not applied — isolating the flag as the cause.
+	// With the flag off, even two CPCs cannot hold a 3h (>cap) window with no
+	// relief body — someone would be pinned past the cap. This isolates the flag:
+	// it is the only thing that makes the two-CPC case legal.
 	rOff := r
 	rOff.PositionSwapIsBreak = false
-	if !coverage.Satisfies(cpcPlusLC, hlnPositions, iv, rOff) {
-		t.Errorf("CPC + LC-only should satisfy the same low interval when the flag is off")
+	if coverage.Satisfies(twoCPC, hlnPositions, iv, rOff) {
+		t.Errorf("two CPCs should NOT hold a 3h window without swap-is-break (no relief)")
 	}
 }
 
