@@ -13,14 +13,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/firefly-software-mt/advanced-template/internal/config"
-	"github.com/firefly-software-mt/advanced-template/internal/handler"
-	"github.com/firefly-software-mt/advanced-template/internal/mail"
-	"github.com/firefly-software-mt/advanced-template/internal/middleware"
-	"github.com/firefly-software-mt/advanced-template/internal/session"
-	"github.com/firefly-software-mt/advanced-template/internal/store"
-	"github.com/firefly-software-mt/advanced-template/internal/view"
-	"github.com/firefly-software-mt/advanced-template/migrations"
+	"github.com/dukerupert/miranda/internal/config"
+	"github.com/dukerupert/miranda/internal/handler"
+	"github.com/dukerupert/miranda/internal/mail"
+	"github.com/dukerupert/miranda/internal/middleware"
+	"github.com/dukerupert/miranda/internal/session"
+	"github.com/dukerupert/miranda/internal/store"
+	"github.com/dukerupert/miranda/internal/view"
+	"github.com/dukerupert/miranda/migrations"
 
 	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite"
@@ -119,6 +119,7 @@ func main() {
 
 	// Pages
 	mux.Handle("GET /", handler.Home())
+	mux.Handle("GET /explore", handler.Explore()) // scheduling-engine proof of concept
 	mux.Handle("GET /contact", handler.Contact())
 	mux.Handle("POST /contact", handler.ContactSubmit(mailer, cfg.TurnstileSecretKey))
 
