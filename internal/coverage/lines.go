@@ -1,6 +1,7 @@
 package coverage
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/dukerupert/miranda/internal/domain"
@@ -134,17 +135,32 @@ func LineQualRequirements(
 	full := domain.QualSet{domain.CapAP: true, domain.CapLC: true, domain.CapCIC: true}
 	req := make(map[string]domain.QualSet, len(lines))
 	for _, line := range lines {
-		result := domain.QualSet{}
-		for _, c := range []domain.Capability{domain.CapAP, domain.CapLC, domain.CapCIC} {
-			hypo := map[string]domain.QualSet{}
+		// Baseline: probed line at full quals, others at their actual quals.
+		occWith := func(cap domain.Capability, drop bool) map[string]domain.QualSet {
+			m := map[string]domain.QualSet{}
 			for _, other := range lines {
 				if other.ID == line.ID {
-					hypo[other.ID] = full.Without(c)
+					if drop {
+						m[other.ID] = full.Without(cap)
+					} else {
+						m[other.ID] = full
+					}
 				} else {
-					hypo[other.ID] = eff(other.ID)
+					m[other.ID] = eff(other.ID)
 				}
 			}
-			if !weekSatisfiable(lines, hypo, f, r, dt) {
+			return m
+		}
+		baseGaps := len(weekGapSet(lines, occWith("", false), f, r, dt))
+
+		result := domain.QualSet{}
+		for _, c := range []domain.Capability{domain.CapAP, domain.CapLC, domain.CapCIC} {
+			// Dropping quals can only add coverage gaps, never remove them, so a
+			// capability is load-bearing for this line exactly when dropping it
+			// introduces MORE gaps than the full-quals baseline. Comparing gap
+			// counts (rather than a bare satisfiable bool) keeps the result
+			// meaningful even when the schedule already dips somewhere else.
+			if len(weekGapSet(lines, occWith(c, true), f, r, dt)) > baseGaps {
 				result[c] = true
 			}
 		}
@@ -153,9 +169,10 @@ func LineQualRequirements(
 	return req, nil
 }
 
-// weekSatisfiable reports whether every day of the repeating week is fully
-// covered given the occupant quals.
-func weekSatisfiable(lines []domain.Line, occupants map[string]domain.QualSet, f domain.Facility, r domain.RuleSet, dt DemandTimeline) bool {
+// weekGapSet returns the set of distinct coverage-gap slices across the repeating
+// week, keyed by day+span, given the occupant quals.
+func weekGapSet(lines []domain.Line, occupants map[string]domain.QualSet, f domain.Facility, r domain.RuleSet, dt DemandTimeline) map[string]bool {
+	out := map[string]bool{}
 	for day := 0; day < 7; day++ {
 		var working []WorkingShift
 		for _, line := range lines {
@@ -167,9 +184,9 @@ func weekSatisfiable(lines []domain.Line, occupants map[string]domain.QualSet, f
 				working = append(working, WorkingShift{LineID: line.ID, Template: *s, Quals: q})
 			}
 		}
-		if len(DayCoverageGaps(working, f, r, dt)) > 0 {
-			return false
+		for _, g := range DayCoverageGaps(working, f, r, dt) {
+			out[fmt.Sprintf("%d|%s|%s", day, g.Start, g.End)] = true
 		}
 	}
-	return true
+	return out
 }
