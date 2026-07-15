@@ -166,6 +166,28 @@ func DuplicateScenario(st *store.Store) http.HandlerFunc {
 	}
 }
 
+// UpdateScenarioSettings handles POST /explore/scenarios/update: rename a
+// scenario and set its pay-period start (must be YYYY-MM-DD).
+func UpdateScenarioSettings(st *store.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := formInt64(r, "scenario")
+		name := strings.TrimSpace(r.FormValue("name"))
+		if name == "" {
+			name = "Scenario"
+		}
+		pp := strings.TrimSpace(r.FormValue("pp_start"))
+		if _, err := time.Parse("2006-01-02", pp); err != nil {
+			http.Error(w, "pay-period start must be YYYY-MM-DD", http.StatusBadRequest)
+			return
+		}
+		if err := st.UpdateScenario(r.Context(), id, name, pp); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		redirectToScenario(w, r, id)
+	}
+}
+
 // DeleteScenario handles POST /explore/scenarios/delete: delete a scenario and
 // redirect to whatever remains.
 func DeleteScenario(st *store.Store) http.HandlerFunc {

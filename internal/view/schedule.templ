@@ -28,6 +28,9 @@ templ exploreContent(v ScheduleView) {
 		</p>
 
 		@scenarioBar(v)
+		if v.HasScenarios() {
+			@scenarioSettings(v)
+		}
 
 		if !v.HasScenarios() {
 			@emptyState()
@@ -279,6 +282,23 @@ templ scenarioBar(v ScheduleView) {
 			<button type="submit" class="rounded-sm bg-ff-ember px-4 py-2 text-[12px] font-medium uppercase tracking-[0.1em] text-[#1a1109] transition hover:bg-ff-ember-hover">Seed HLN</button>
 		</form>
 	</div>
+}
+
+// scenarioSettings edits the selected scenario's name and pay-period start.
+templ scenarioSettings(v ScheduleView) {
+	<form method="post" action="/explore/scenarios/update" class="mt-3 flex flex-wrap items-end gap-3 rounded-sm border border-ff-border bg-ff-dark/20 px-4 py-3">
+		@CSRFField()
+		<input type="hidden" name="scenario" value={ fmt.Sprintf("%d", v.ScenarioID) }/>
+		<div>
+			<label class="mb-1 block text-[10px] uppercase tracking-wider text-ff-stone">Scenario name</label>
+			<input type="text" name="name" value={ v.ScenarioName() } class="w-56 rounded-sm border border-ff-border bg-ff-dark px-2 py-1.5 text-[13px] text-ff-paper outline-none focus:border-ff-ember"/>
+		</div>
+		<div>
+			<label class="mb-1 block text-[10px] uppercase tracking-wider text-ff-stone">Pay-period start (Sunday)</label>
+			<input type="date" name="pp_start" value={ scenarioPPStart(v) } class="rounded-sm border border-ff-border bg-ff-dark px-2 py-1.5 text-[13px] text-ff-paper outline-none focus:border-ff-ember"/>
+		</div>
+		<button type="submit" class="rounded-sm border border-ff-border px-3 py-2 text-[12px] font-medium text-ff-cream transition hover:border-ff-ember">Save settings</button>
+	</form>
 }
 
 // emptyState invites the user to seed the HLN reference on a fresh database.

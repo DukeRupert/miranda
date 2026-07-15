@@ -166,6 +166,16 @@ func (v ScheduleView) PPWindow() string {
 // LeaveTypes is the selectable leave-type set.
 var LeaveTypes = []string{"annual", "sick", "bid"}
 
+// ScenarioName is the selected scenario's name (for the settings form).
+func (v ScheduleView) ScenarioName() string {
+	for _, sc := range v.Scenarios {
+		if sc.ID == v.ScenarioID {
+			return sc.Name
+		}
+	}
+	return ""
+}
+
 // hiddenField is a name/value pair rendered as a hidden input inside a small
 // standalone POST form (see the postButton component).
 type hiddenField struct {
