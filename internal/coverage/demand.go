@@ -145,7 +145,7 @@ func ComputeDemand(f domain.Facility, r domain.RuleSet) (DemandTimeline, error) 
 // where W = Close-Open and cap = MaxTimeOnPosition. For HLN this is 6 at both an
 // 8h and a 10h cap and 5 at a 13h cap — matching spec R2/R3. (An earlier
 // conservative "3 across the whole core" model gave 7 at 8h; the rotation-aware
-// rule is the correct one — see POC-NOTES.md.)
+// rule is the correct one — see SCHEDULING.md.)
 func MinDailyShiftInstances(f domain.Facility, r domain.RuleSet) (int, error) {
 	if err := r.Validate(); err != nil {
 		return 0, err

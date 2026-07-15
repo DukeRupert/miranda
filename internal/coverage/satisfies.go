@@ -6,7 +6,7 @@ import (
 
 // Satisfies reports whether the present controllers can legally staff a single
 // continuous interval. It is duration-aware, which is the crux of the
-// rotation-aware model (spec §4.2 as corrected in POC-NOTES.md):
+// rotation-aware model (spec §4.2 as corrected in SCHEDULING.md):
 //
 //   - Always: at least MinStaffWhenOpen bodies present, and an assignment must
 //     exist that fills every position with a qualified body and puts at least one
