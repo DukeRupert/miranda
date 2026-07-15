@@ -52,7 +52,71 @@ templ exploreContent(v ScheduleView) {
 templ scheduleEditors(v ScheduleView) {
 	<div class="mt-14 space-y-12 border-t border-ff-border pt-12">
 		@linesEditor(v)
+		@controllersEditor(v)
 	</div>
+}
+
+// controllersEditor lists every controller with editable name, AP/LC/CIC quals,
+// and line assignment, plus a form to add a new one.
+templ controllersEditor(v ScheduleView) {
+	<div>
+		@panelHead("Controllers", fmt.Sprintf("%d controllers · quals + line assignment", len(v.Data.Controllers)))
+		<div class="space-y-2">
+			for _, c := range v.Data.Controllers {
+				@controllerForm(v, c)
+			}
+			<p class="pt-4 text-[11px] font-medium uppercase tracking-wider text-ff-stone">Add a controller</p>
+			@controllerForm(v, domain.Controller{})
+		</div>
+	</div>
+}
+
+// controllerForm renders one editable controller (blank ID = the add-new form).
+templ controllerForm(v ScheduleView, c domain.Controller) {
+	<form method="post" action="/explore/controllers" class="flex flex-wrap items-end gap-3 rounded-sm border border-ff-border bg-ff-dark/40 p-3">
+		@CSRFField()
+		<input type="hidden" name="scenario" value={ fmt.Sprintf("%d", v.ScenarioID) }/>
+		<input type="hidden" name="controller_id" value={ c.ID }/>
+		<div>
+			<label class="mb-1 block text-[10px] uppercase tracking-wider text-ff-stone">Name</label>
+			<input type="text" name="name" value={ c.Name } placeholder="name" class="w-36 rounded-sm border border-ff-border bg-ff-dark px-2 py-1.5 text-[13px] text-ff-paper outline-none focus:border-ff-ember"/>
+		</div>
+		<div>
+			<label class="mb-1 block text-[10px] uppercase tracking-wider text-ff-stone">Quals</label>
+			<div class="flex items-center gap-3 py-1.5">
+				@qualCheck("qual_ap", "AP", c.Quals[domain.CapAP])
+				@qualCheck("qual_lc", "LC", c.Quals[domain.CapLC])
+				@qualCheck("qual_cic", "CIC", c.Quals[domain.CapCIC])
+			</div>
+		</div>
+		<div>
+			<label class="mb-1 block text-[10px] uppercase tracking-wider text-ff-stone">Line</label>
+			<select name="line_id" class="rounded-sm border border-ff-border bg-ff-dark px-2 py-1.5 text-[13px] text-ff-paper outline-none focus:border-ff-ember">
+				<option value="0" selected?={ c.LineID == nil }>— unassigned —</option>
+				for _, line := range v.Data.Lines {
+					<option value={ line.ID } selected?={ c.LineID != nil && *c.LineID == line.ID }>{ v.LineCode(line.ID) }</option>
+				}
+			</select>
+		</div>
+		<button type="submit" class="rounded-sm bg-ff-ember px-3 py-2 text-[12px] font-medium uppercase tracking-[0.1em] text-[#1a1109] transition hover:bg-ff-ember-hover">
+			if c.ID == "" {
+				Add
+			} else {
+				Save
+			}
+		</button>
+		if c.ID != "" {
+			<button type="submit" formaction="/explore/controllers/delete" class="text-[11px] text-ff-stone transition hover:text-red-300">Delete</button>
+		}
+	</form>
+}
+
+// qualCheck is a single labeled qualification checkbox (submits "1" when set).
+templ qualCheck(name, label string, checked bool) {
+	<label class="flex cursor-pointer items-center gap-1.5 text-[12px] text-ff-ash">
+		<input type="checkbox" name={ name } value="1" checked?={ checked } class="h-3.5 w-3.5 accent-ff-ember"/>
+		{ label }
+	</label>
 }
 
 // linesEditor lists every line with its seven editable day-slots, plus a form

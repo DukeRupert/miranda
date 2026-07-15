@@ -252,9 +252,56 @@ func parseSlot(startStr, durStr string) *store.Slot {
 	return &store.Slot{StartMin: int(tod), DurationMin: int(math.Round(h * 60))}
 }
 
+// ---- controller mutations -------------------------------------------------
+
+// SaveController handles POST /explore/controllers: create (controller_id=0) or
+// update a controller's name, AP/LC/CIC quals, and line assignment (line_id=0 =
+// unassigned).
+func SaveController(st *store.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		scenarioID := formInt64(r, "scenario")
+		ctrlID := formInt64(r, "controller_id")
+		name := strings.TrimSpace(r.FormValue("name"))
+		if name == "" {
+			name = "New"
+		}
+		ap := formCheck(r, "qual_ap")
+		lc := formCheck(r, "qual_lc")
+		cic := formCheck(r, "qual_cic")
+		lineID := formInt64(r, "line_id")
+
+		var err error
+		if ctrlID == 0 {
+			_, err = st.CreateController(r.Context(), scenarioID, name, ap, lc, cic, lineID, 1000)
+		} else {
+			err = st.UpdateController(r.Context(), ctrlID, name, ap, lc, cic, lineID)
+		}
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		redirectToScenario(w, r, scenarioID)
+	}
+}
+
+// DeleteController handles POST /explore/controllers/delete.
+func DeleteController(st *store.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		scenarioID := formInt64(r, "scenario")
+		if err := st.DeleteController(r.Context(), formInt64(r, "controller_id")); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		redirectToScenario(w, r, scenarioID)
+	}
+}
+
 // ---- helpers --------------------------------------------------------------
 
 func hours(h float64) time.Duration { return time.Duration(h * float64(time.Hour)) }
+
+// formCheck reports whether a checkbox with value "1" was submitted.
+func formCheck(r *http.Request, key string) bool { return r.FormValue(key) == "1" }
 
 func scenarioExists(scenarios []store.Scenario, id int64) bool {
 	for _, s := range scenarios {
